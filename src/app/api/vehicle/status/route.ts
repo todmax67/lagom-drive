@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { getVin, getRechargeStatus, getEngineStatus } from '@/lib/volvo-api';
+import { processSnapshot } from '@/lib/charging-detector';
 
 export async function GET() {
   const session = await auth();
@@ -12,9 +13,16 @@ export async function GET() {
   try {
     const vin = await getVin(session.accessToken);
     const [battery, isDriving] = await Promise.all([
-      getRechargeStatus(session.accessToken, vin),
-      getEngineStatus(session.accessToken, vin),
+      getRechargeStatus(session.accessToken, vin).catch(() => null),
+      getEngineStatus(session.accessToken, vin).catch(() => false),
     ]);
+
+    // Processa snapshot e rileva ricariche solo se abbiamo dati validi
+    if (battery) {
+      await processSnapshot(battery).catch(err =>
+        console.error('Errore processSnapshot:', err)
+      );
+    }
 
     return NextResponse.json({
       vin,
