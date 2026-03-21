@@ -1,0 +1,42 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model BatterySnapshot {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  level        Int
+  range        Int
+  isCharging   Boolean
+  isConnected  Boolean
+  chargingType String?
+}
+
+model ChargingSession {
+  id           String    @id @default(cuid())
+  startedAt    DateTime
+  endedAt      DateTime?
+  startLevel   Int
+  endLevel     Int?
+  energyAdded  Float?
+  chargingType String
+  costPerKwh   Float?
+  totalCost    Float?
+  location     String?
+  notes        String?
+  isComplete   Boolean   @default(false)
+}
+
+model Settings {
+  id              String   @id @default("singleton")
+  homeTariff      Float    @default(0.25)
+  publicTariff    Float    @default(0.50)
+  batteryCapacity Float    @default(69.0)
+  updatedAt       DateTime @updatedAt
+}
