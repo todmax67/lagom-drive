@@ -1,29 +1,37 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSession, signOut } from 'next-auth/react';
-import { Car, TrendingUp, MapPin, LogOut, RefreshCw } from 'lucide-react';
+import { Car, TrendingUp, MapPin, LogOut, RefreshCw, Settings, BarChart2 } from 'lucide-react';
 
 import LoginPage from '@/components/dashboard/LoginPage';
 import BatteryCard from '@/components/dashboard/BatteryCard';
 import StatsCard from '@/components/dashboard/StatsCard';
 import LocationCard from '@/components/dashboard/LocationCard';
+import ChargingHistory from '@/components/dashboard/ChargingHistory';
+import BatteryChart from '@/components/dashboard/BatteryChart';
+import MonthlyStats from '@/components/dashboard/MonthlyStats';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import ErrorCard from '@/components/ui/ErrorCard';
 import NavButton from '@/components/ui/NavButton';
 import { useVehicleData } from '@/hooks/useVehicleData';
 
-type Page = 'dashboard' | 'stats' | 'location';
+type Page = 'dashboard' | 'stats' | 'location' | 'charging';
 
 function Dashboard() {
   const [page, setPage] = useState<Page>('dashboard');
   const { data: session } = useSession();
-  useEffect(() => {
-  if ((session as any)?.error === 'RefreshTokenError') {
-    signOut();
-  }
-}, [session]);
   const { status, stats, location, isLoading, error, refresh } = useVehicleData();
+
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [snapshots, setSnapshots] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (session?.accessToken) {
+      fetch('/api/charging/sessions').then(r => r.json()).then(setSessions).catch(() => {});
+      fetch('/api/charging/snapshots?hours=24').then(r => r.json()).then(setSnapshots).catch(() => {});
+    }
+  }, [session, status]);
 
   const renderContent = () => {
     if (isLoading) return <LoadingSpinner />;
@@ -49,6 +57,18 @@ function Dashboard() {
       );
     }
 
+    if (page === 'charging') {
+      return (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <MonthlyStats sessions={sessions} stats={stats} />
+          <BatteryChart snapshots={snapshots} />
+          <div className="xl:col-span-2">
+            <ChargingHistory sessions={sessions} />
+          </div>
+        </div>
+      );
+    }
+
     if (page === 'stats' && stats) {
       return (
         <div className="max-w-lg">
@@ -65,16 +85,12 @@ function Dashboard() {
       );
     }
 
-    return (
-      <ErrorCard message="Nessun dato disponibile. Riprova tra qualche secondo." />
-    );
+    return <ErrorCard message="Nessun dato disponibile. Riprova tra qualche secondo." />;
   };
 
   return (
     <div className="bg-gray-950 min-h-screen text-white font-sans">
       <div className="max-w-7xl mx-auto p-4 md:p-6 lg:p-8">
-
-        {/* Header */}
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
           <div>
             <h1 className="text-2xl font-light text-white tracking-tight">
@@ -92,13 +108,18 @@ function Dashboard() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Nav */}
             <nav className="bg-gray-800/80 border border-gray-700/50 p-1.5 rounded-xl flex items-center gap-1">
               <NavButton
                 icon={<Car size={18} />}
                 label="Dashboard"
                 isActive={page === 'dashboard'}
                 onClick={() => setPage('dashboard')}
+              />
+              <NavButton
+                icon={<BarChart2 size={18} />}
+                label="Ricariche"
+                isActive={page === 'charging'}
+                onClick={() => setPage('charging')}
               />
               <NavButton
                 icon={<TrendingUp size={18} />}
@@ -114,7 +135,6 @@ function Dashboard() {
               />
             </nav>
 
-            {/* Refresh */}
             <button
               onClick={refresh}
               disabled={isLoading}
@@ -124,7 +144,6 @@ function Dashboard() {
               <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
             </button>
 
-            {/* Logout */}
             <button
               onClick={() => signOut()}
               title="Logout"
@@ -135,9 +154,7 @@ function Dashboard() {
           </div>
         </header>
 
-        {/* Contenuto */}
         {renderContent()}
-
       </div>
     </div>
   );
