@@ -1,14 +1,26 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import Providers from '@/components/providers';
-import React from 'react';
 
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'Lagom Drive',
   description: 'Dashboard per la tua Volvo elettrica',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Lagom Drive',
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#0f172a',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({
@@ -18,6 +30,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="it">
+      <head>
+        <link rel="apple-touch-icon" href="/icon-180.png" />
+      </head>
       <body className={`${inter.className} bg-gray-900 text-white`}>
         <Providers>{children}</Providers>
       </body>
