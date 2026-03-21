@@ -15,8 +15,9 @@ import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import ErrorCard from '@/components/ui/ErrorCard';
 import NavButton from '@/components/ui/NavButton';
 import { useVehicleData } from '@/hooks/useVehicleData';
+import SettingsPage from '@/components/dashboard/SettingsPage';
 
-type Page = 'dashboard' | 'stats' | 'location' | 'charging';
+type Page = 'dashboard' | 'stats' | 'location' | 'charging' | 'settings';
 
 function Dashboard() {
   const [page, setPage] = useState<Page>('dashboard');
@@ -85,6 +86,10 @@ function Dashboard() {
       );
     }
 
+    if (page === 'settings') {
+      return <SettingsPage />;
+    }
+
     return <ErrorCard message="Nessun dato disponibile. Riprova tra qualche secondo." />;
   };
 
@@ -132,6 +137,12 @@ function Dashboard() {
                 label="Posizione"
                 isActive={page === 'location'}
                 onClick={() => setPage('location')}
+              />
+              <NavButton
+                icon={<Settings size={18} />}
+                label="Impostazioni"
+                isActive={page === 'settings'}
+                onClick={() => setPage('settings')}
               />
             </nav>
 
