@@ -9,6 +9,9 @@ export async function GET() {
   }
 
   const userId = (session as any).userId ?? session.user?.email ?? 'unknown';
+console.log("SESSION USER:", JSON.stringify(session.user));
+console.log("SESSION ANY:", JSON.stringify((session as any).userId));
+console.log("FINAL userId:", userId);
 
   const sessions = await prisma.chargingSession.findMany({
     where: { userId },
