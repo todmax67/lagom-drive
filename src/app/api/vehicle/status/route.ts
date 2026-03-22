@@ -10,10 +10,6 @@ export async function GET() {
     return NextResponse.json({ message: 'Non autorizzato' }, { status: 401 });
   }
 
-  // DEBUG temporaneo
-  const payload = JSON.parse(Buffer.from(session.accessToken.split('.')[1], 'base64').toString());
-  console.log("SCOPE SU VERCEL:", payload.scope);
-
   try {
     const vin = await getVin(session.accessToken);
     const [battery, isDriving] = await Promise.all([
