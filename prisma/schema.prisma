@@ -11,15 +11,19 @@ datasource db {
 model BatterySnapshot {
   id           String   @id @default(cuid())
   createdAt    DateTime @default(now())
+  userId      String  
   level        Int
   range        Int
   isCharging   Boolean
   isConnected  Boolean
   chargingType String?
+
+  @@index([userId, createdAt])
 }
 
 model ChargingSession {
   id           String    @id @default(cuid())
+  userId        String 
   startedAt    DateTime
   endedAt      DateTime?
   startLevel   Int
@@ -31,10 +35,13 @@ model ChargingSession {
   location     String?
   notes        String?
   isComplete   Boolean   @default(false)
+
+    @@index([userId, startedAt])  
 }
 
 model Settings {
-  id              String   @id @default("singleton")
+  id              String   @id
+  userId          String   @unique
   homeTariff      Float    @default(0.25)
   publicTariff    Float    @default(0.50)
   batteryCapacity Float    @default(69.0)

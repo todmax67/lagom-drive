@@ -102,7 +102,7 @@ export const config: NextAuthConfig = {
 
     async session({ session, token }) {
       session.accessToken = token.accessToken as string;
-      // Passiamo l'errore al frontend se il refresh fallisce
+      (session as any).userId = token.sub;  // ← aggiungi
       if (token.error) {
         (session as any).error = token.error;
       }

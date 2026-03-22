@@ -10,6 +10,9 @@ export async function GET() {
     return NextResponse.json({ message: 'Non autorizzato' }, { status: 401 });
   }
 
+  // Ottieni userId dalla sessione
+  const userId = (session as any).userId ?? session.user?.email ?? 'unknown';
+
   try {
     const vin = await getVin(session.accessToken);
     const [battery, isDriving] = await Promise.all([
@@ -17,9 +20,8 @@ export async function GET() {
       getEngineStatus(session.accessToken, vin).catch(() => false),
     ]);
 
-    // Processa snapshot e rileva ricariche solo se abbiamo dati validi
     if (battery) {
-      await processSnapshot(battery).catch(err =>
+      await processSnapshot(battery, userId).catch(err =>
         console.error('Errore processSnapshot:', err)
       );
     }
@@ -31,7 +33,7 @@ export async function GET() {
       lastUpdated: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('Errore /api/vehicle/stats DETTAGLIO:', error);
+    console.error('Errore /api/vehicle/status:', error);
     return NextResponse.json(
       { message: 'Errore nel recupero dello stato del veicolo' },
       { status: 500 }

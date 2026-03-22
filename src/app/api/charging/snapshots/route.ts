@@ -8,6 +8,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ message: 'Non autorizzato' }, { status: 401 });
   }
 
+  const userId = (session as any).userId ?? session.user?.email ?? 'unknown';
   const { searchParams } = new URL(request.url);
   const hours = parseInt(searchParams.get('hours') ?? '24');
 
@@ -15,7 +16,7 @@ export async function GET(request: Request) {
   since.setHours(since.getHours() - hours);
 
   const snapshots = await prisma.batterySnapshot.findMany({
-    where: { createdAt: { gte: since } },
+    where: { userId, createdAt: { gte: since } },
     orderBy: { createdAt: 'asc' },
   });
 

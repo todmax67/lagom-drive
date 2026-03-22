@@ -52,7 +52,7 @@ export function useVehicleData(): UseVehicleDataReturn {
   useEffect(() => {
     fetchAll();
     // Aggiorna ogni 60 secondi
-    const interval = setInterval(fetchAll, 60_000);
+    const interval = setInterval(fetchAll, 600_000);
     return () => clearInterval(interval);
   }, [fetchAll]);
 

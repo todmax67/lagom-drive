@@ -1,10 +1,13 @@
 import { prisma } from '@/lib/prisma';
 import type { VehicleStatus } from '@/types/volvo';
 
-export async function processSnapshot(battery: VehicleStatus['battery']) {
-  // 1. Salva snapshot corrente
+export async function processSnapshot(
+  battery: VehicleStatus['battery'],
+  userId: string
+) {
   await prisma.batterySnapshot.create({
     data: {
+      userId,
       level: battery.level,
       range: battery.range,
       isCharging: battery.isCharging,
@@ -13,25 +16,22 @@ export async function processSnapshot(battery: VehicleStatus['battery']) {
     },
   });
 
-  // 2. Ottieni impostazioni tariffe
   const settings = await prisma.settings.upsert({
-    where: { id: 'singleton' },
+    where: { userId },
     update: {},
-    create: { id: 'singleton' },
+    create: { id: userId, userId },
   });
 
-  // 3. Cerca sessione di ricarica aperta
   const openSession = await prisma.chargingSession.findFirst({
-    where: { isComplete: false },
+    where: { userId, isComplete: false },
     orderBy: { startedAt: 'desc' },
   });
 
-  // 4. Sta caricando ora
   if (battery.isCharging) {
     if (!openSession) {
-      // Inizia nuova sessione
       await prisma.chargingSession.create({
         data: {
+          userId,
           startedAt: new Date(),
           startLevel: battery.level,
           chargingType: battery.chargingType ?? 'AC',
@@ -41,18 +41,13 @@ export async function processSnapshot(battery: VehicleStatus['battery']) {
           location: battery.chargingType === 'DC' ? 'Colonnina' : 'Casa',
         },
       });
-      console.log(`Nuova sessione di ricarica iniziata: ${battery.level}%`);
     }
     return;
   }
 
-  // 5. Non sta caricando — chiudi sessione aperta se esiste
   if (openSession && !battery.isCharging) {
     const endLevel = battery.level;
-    const startLevel = openSession.startLevel;
-    const levelDiff = endLevel - startLevel;
-
-    // Calcoliamo i kWh aggiunti dalla differenza di percentuale
+    const levelDiff = endLevel - openSession.startLevel;
     const energyAdded = (levelDiff / 100) * settings.batteryCapacity;
     const totalCost = energyAdded * (openSession.costPerKwh ?? settings.homeTariff);
 
@@ -66,6 +61,5 @@ export async function processSnapshot(battery: VehicleStatus['battery']) {
         isComplete: true,
       },
     });
-    console.log(`Sessione di ricarica completata: ${startLevel}% → ${endLevel}%, ${energyAdded.toFixed(1)} kWh`);
   }
 }

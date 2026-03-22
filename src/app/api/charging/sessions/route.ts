@@ -8,9 +8,12 @@ export async function GET() {
     return NextResponse.json({ message: 'Non autorizzato' }, { status: 401 });
   }
 
+  const userId = (session as any).userId ?? session.user?.email ?? 'unknown';
+
   const sessions = await prisma.chargingSession.findMany({
+    where: { userId },
     orderBy: { startedAt: 'desc' },
-    take: 50, // ultime 50 sessioni
+    take: 50,
   });
 
   return NextResponse.json(sessions);

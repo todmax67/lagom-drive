@@ -8,10 +8,12 @@ export async function GET() {
     return NextResponse.json({ message: 'Non autorizzato' }, { status: 401 });
   }
 
+  const userId = (session as any).userId ?? session.user?.email ?? 'unknown';
+
   const settings = await prisma.settings.upsert({
-    where: { id: 'singleton' },
+    where: { userId },
     update: {},
-    create: { id: 'singleton' },
+    create: { id: userId, userId },
   });
 
   return NextResponse.json(settings);
@@ -23,17 +25,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: 'Non autorizzato' }, { status: 401 });
   }
 
+  const userId = (session as any).userId ?? session.user?.email ?? 'unknown';
   const body = await request.json();
 
   const settings = await prisma.settings.upsert({
-    where: { id: 'singleton' },
+    where: { userId },
     update: {
       homeTariff: body.homeTariff,
       publicTariff: body.publicTariff,
       batteryCapacity: body.batteryCapacity,
     },
     create: {
-      id: 'singleton',
+      id: userId,
+      userId,
       homeTariff: body.homeTariff,
       publicTariff: body.publicTariff,
       batteryCapacity: body.batteryCapacity,
