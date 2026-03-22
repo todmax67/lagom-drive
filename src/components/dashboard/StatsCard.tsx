@@ -30,6 +30,18 @@ export default function StatsCard({ stats }: { stats: VehicleStats }) {
           </span>
         </div>
 
+        {stats.odometerKm > 0 && (
+          <div className="flex items-center justify-between p-3 rounded-xl bg-gray-900/60">
+            <div className="flex items-center gap-3">
+              <Route size={16} className="text-blue-400" />
+              <span className="text-sm text-gray-300">Km totali</span>
+            </div>
+            <span className="text-white font-light">
+              {stats.odometerKm.toLocaleString('it-IT')} <span className="text-gray-400 text-xs">km</span>
+            </span>
+          </div>
+        )}
+
         <div className="flex items-center justify-between p-3 rounded-xl bg-gray-900/60">
           <div className="flex items-center gap-3">
             <Route size={16} className="text-emerald-400" />

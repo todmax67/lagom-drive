@@ -1,6 +1,6 @@
 import type {
   VehicleListResponse,
-  RechargeStatusResponse,
+  OdometerResponse,
   StatisticsResponse,
   LocationResponse,
   EngineStatusResponse,
@@ -97,20 +97,27 @@ export async function getStatistics(
   accessToken: string,
   vin: string
 ): Promise<VehicleStats> {
-  const data = await volvoFetch<StatisticsResponse>(
-    `/connected-vehicle/v2/vehicles/${vin}/statistics`,
-    accessToken
-  );
+  const [statsData, odometerData] = await Promise.all([
+    volvoFetch<StatisticsResponse>(
+      `/connected-vehicle/v2/vehicles/${vin}/statistics`,
+      accessToken
+    ),
+    volvoFetch<OdometerResponse>(
+      `/connected-vehicle/v2/vehicles/${vin}/odometer`,
+      accessToken
+    ).catch(() => null),
+  ]);
 
-  const d = data.data;
+  const d = statsData.data;
 
   return {
-  avgSpeedKmh: d.averageSpeed?.value ?? 0,
-  avgConsumptionKwh: d.averageEnergyConsumption?.value ?? 0,
-  tripMeter1Km: d.tripMeterManual?.value ?? 0,
-  tripMeter2Km: d.tripMeterAutomatic?.value ?? 0,
-  lastUpdated: d.averageSpeed?.timestamp ?? new Date().toISOString(),
-};
+    avgSpeedKmh: d.averageSpeed?.value ?? 0,
+    avgConsumptionKwh: d.averageEnergyConsumption?.value ?? 0,
+    tripMeter1Km: d.tripMeterManual?.value ?? 0,
+    tripMeter2Km: d.tripMeterAutomatic?.value ?? 0,
+    odometerKm: odometerData?.data?.odometer?.value ?? 0,
+    lastUpdated: d.averageSpeed?.timestamp ?? new Date().toISOString(),
+  };
 }
 
 // --- Posizione GPS ---

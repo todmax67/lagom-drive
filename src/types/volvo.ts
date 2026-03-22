@@ -26,46 +26,6 @@ export interface Vehicle {
 
 export type VehicleListResponse = VolvoApiResponse<Vehicle[]>;
 
-// --- Stato Batteria / Ricarica ---
-export interface RechargeStatus {
-  batteryChargeLevel: {
-    value: number;         // 0–100 (percentuale)
-    unit: string;          // "%"
-    timestamp: string;
-  };
-  distanceToEmpty: {
-    value: number;         // km
-    unit: string;          // "km"
-    timestamp: string;
-  };
-  chargingSystemStatus: {
-    value: 'CHARGING_SYSTEM_IDLE' | 'CHARGING_SYSTEM_CHARGING' | 'CHARGING_SYSTEM_FAULT' | 'CHARGING_SYSTEM_UNSPECIFIED';
-    timestamp: string;
-  };
-  chargingConnectionStatus: {
-    value: 'CONNECTION_STATUS_CONNECTED_AC' | 'CONNECTION_STATUS_CONNECTED_DC' | 'CONNECTION_STATUS_DISCONNECTED' | 'CONNECTION_STATUS_FAULT' | 'CONNECTION_STATUS_UNSPECIFIED';
-    timestamp: string;
-  };
-  estimatedChargingTime: {
-    value: number;         // minuti
-    unit: string;          // "minutes"
-    timestamp: string;
-  };
-  chargingCurrentAmps: {
-    value: number;
-    unit: string;          // "A"
-    timestamp: string;
-  };
-  chargingVoltageVolts: {
-    value: number;
-    unit: string;          // "V"
-    timestamp: string;
-  };
-}
-
-export type RechargeStatusResponse = VolvoApiResponse<RechargeStatus>;
-
-// --- Statistiche / Consumi ---
 // --- Stato Batteria / Ricarica (Energy API v2) ---
 export interface RechargeStatusV2 {
   batteryChargeLevel: { status: string; value: number; unit: string; updatedAt: string; };
@@ -89,14 +49,25 @@ export interface Statistics {
 
 export type StatisticsResponse = VolvoApiResponse<Statistics>;
 
+// --- Odometro ---
+export interface OdometerStatus {
+  odometer: {
+    value: number;
+    unit: string;
+    timestamp: string;
+  };
+}
+
+export type OdometerResponse = VolvoApiResponse<OdometerStatus>;
+
 // --- Posizione ---
 export interface Location {
   geometry: {
     type: 'Point';
-    coordinates: [number, number]; // [longitude, latitude]
+    coordinates: [number, number];
   };
   properties: {
-    heading: number;       // gradi (0–360)
+    heading: number;
     timestamp: string;
   };
   type: 'Feature';
@@ -115,10 +86,9 @@ export interface EngineStatus {
 export type EngineStatusResponse = VolvoApiResponse<EngineStatus>;
 
 // ============================================================
-//  TIPI INTERNI ALL'APP (non direttamente dall'API)
+//  TIPI INTERNI ALL'APP
 // ============================================================
 
-// Oggetto unificato che il nostro /api/vehicle/* ritorna al frontend
 export interface VehicleStatus {
   vin: string;
   model: string;
@@ -142,6 +112,7 @@ export interface VehicleStats {
   avgConsumptionKwh: number;
   tripMeter1Km: number;
   tripMeter2Km: number;
+  odometerKm: number;
   lastUpdated: string;
 }
 
