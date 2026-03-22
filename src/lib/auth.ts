@@ -40,7 +40,7 @@ async function refreshAccessToken(refreshToken: string) {
 
 export const config: NextAuthConfig = {
   providers: [
-    {
+      {
       id: 'volvo',
       name: 'Volvo',
       type: 'oauth',
@@ -51,7 +51,7 @@ export const config: NextAuthConfig = {
           scope: 'openid conve:vehicle_relation conve:battery_charge_level conve:engine_status conve:fuel_status conve:odometer_status conve:trip_statistics location:read energy:state:read',
         },
       },
-      token: 'https://volvoid.eu.volvocars.com/as/token.oauth2',
+      token: `${process.env.AUTH_URL}/api/volvo-token`,
       userinfo: 'https://api.volvocars.com/customer/identityservice/v1/users/me',
       profile(profile) {
         return {
