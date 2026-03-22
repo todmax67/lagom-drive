@@ -31,12 +31,17 @@ export function useVehicleData(): UseVehicleDataReturn {
   const fetchAll = useCallback(async () => {
     try {
       setError(null);
-      const [status, stats, location] = await Promise.all([
+      const [status, stats, location] = await Promise.allSettled([
         fetchJson<VehicleStatus>('/api/vehicle/status'),
         fetchJson<VehicleStats>('/api/vehicle/stats'),
         fetchJson<VehicleLocation>('/api/vehicle/location'),
       ]);
-      setData({ status, stats, location });
+
+      setData({
+        status: status.status === 'fulfilled' ? status.value : null,
+        stats: stats.status === 'fulfilled' ? stats.value : null,
+        location: location.status === 'fulfilled' ? location.value : null,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore sconosciuto');
     } finally {
