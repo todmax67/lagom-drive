@@ -78,6 +78,7 @@ export const config: NextAuthConfig = {
           refreshToken: account.refresh_token,
           expiresAt: account.expires_at,
           error: null,
+          sub: token.sub,
         };
       }
 
@@ -102,7 +103,7 @@ export const config: NextAuthConfig = {
 
     async session({ session, token }) {
       session.accessToken = token.accessToken as string;
-      (session as any).userId = session.user?.email ?? token.sub;  // ← usa email
+      (session as any).userId = token.sub; // ← usa sub dal JWT, sempre stabile
       if (token.error) {
         (session as any).error = token.error;
       }
