@@ -102,7 +102,7 @@ export const config: NextAuthConfig = {
 
     async session({ session, token }) {
       session.accessToken = token.accessToken as string;
-      (session as any).userId = token.sub;  // ← aggiungi
+      (session as any).userId = session.user?.email ?? token.sub;  // ← usa email
       if (token.error) {
         (session as any).error = token.error;
       }
