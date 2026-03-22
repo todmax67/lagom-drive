@@ -13,6 +13,8 @@ export async function GET() {
   // Ottieni userId dalla sessione
   const userId = (session as any).userId ?? session.user?.email ?? 'unknown';
 
+  console.log("USER ID:", userId);
+
   try {
     const vin = await getVin(session.accessToken);
     const [battery, isDriving] = await Promise.all([
