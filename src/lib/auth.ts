@@ -70,8 +70,22 @@ export const config: NextAuthConfig = {
 
   callbacks: {
     async jwt({ token, account }) {
-      // Primo login — salviamo i token
+      // Primo login — salviamo i token e recuperiamo il VIN
       if (account) {
+        let vin: string | null = null;
+        try {
+          const vinResponse = await fetch('https://api.volvocars.com/connected-vehicle/v2/vehicles', {
+            headers: {
+              'Authorization': `Bearer ${account.access_token}`,
+              'vcc-api-key': process.env.VOLVO_API_KEY!,
+            },
+          });
+          const vinData = await vinResponse.json();
+          vin = vinData?.data?.[0]?.vin ?? null;
+        } catch {
+          console.error('Errore recupero VIN durante login');
+        }
+
         return {
           ...token,
           accessToken: account.access_token,
@@ -79,11 +93,11 @@ export const config: NextAuthConfig = {
           expiresAt: account.expires_at,
           error: null,
           sub: token.sub,
+          vin,
         };
       }
 
       // Token ancora valido — lo restituiamo così com'è
-      // Aggiungiamo 60 secondi di margine per evitare race condition
       if (Date.now() < (token.expiresAt as number) * 1000 - 60_000) {
         return token;
       }

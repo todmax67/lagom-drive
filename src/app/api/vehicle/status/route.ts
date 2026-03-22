@@ -12,9 +12,11 @@ export async function GET() {
 
   // Ottieni userId dalla sessione
   const userId = (session as any).userId ?? session.user?.email ?? 'unknown';
-  
+
   try {
     const vin = await getVin(session.accessToken);
+    // Usa VIN come userId stabile
+    const userId = vin;
     const [battery, isDriving] = await Promise.all([
       getRechargeStatus(session.accessToken, vin).catch(() => null),
       getEngineStatus(session.accessToken, vin).catch(() => false),
