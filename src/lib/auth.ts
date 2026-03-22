@@ -72,18 +72,38 @@ export const config: NextAuthConfig = {
     async jwt({ token, account }) {
       // Primo login — salviamo i token e recuperiamo il VIN
       if (account) {
-        let vin: string | null = null;
-        try {
-          const vinResponse = await fetch('https://api.volvocars.com/connected-vehicle/v2/vehicles', {
-            headers: {
-              'Authorization': `Bearer ${account.access_token}`,
-              'vcc-api-key': process.env.VOLVO_API_KEY!,
+  let vin: string | null = null;
+  try {
+    const vinResponse = await fetch('https://api.volvocars.com/connected-vehicle/v2/vehicles', {
+      headers: {
+        'Authorization': `Bearer ${account.access_token}`,
+        'vcc-api-key': process.env.VOLVO_API_KEY!,
+      },
+    });
+    const vinData = await vinResponse.json();
+    vin = vinData?.data?.[0]?.vin ?? null;
+  } catch {
+    console.error('Errore recupero VIN durante login');
+  }
+
+  // Salva sessione nel database per il cron job
+        if (vin) {
+          const { prisma } = await import('@/lib/prisma');
+          await prisma.userSession.upsert({
+            where: { userId: vin },
+            update: {
+              accessToken: account.access_token as string,
+              refreshToken: account.refresh_token as string,
+              expiresAt: account.expires_at as number,
+              lastSeen: new Date(),
+            },
+            create: {
+              userId: vin,
+              accessToken: account.access_token as string,
+              refreshToken: account.refresh_token as string,
+              expiresAt: account.expires_at as number,
             },
           });
-          const vinData = await vinResponse.json();
-          vin = vinData?.data?.[0]?.vin ?? null;
-        } catch {
-          console.error('Errore recupero VIN durante login');
         }
 
         return {

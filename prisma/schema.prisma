@@ -47,3 +47,13 @@ model Settings {
   batteryCapacity Float    @default(69.0)
   updatedAt       DateTime @updatedAt
 }
+
+model UserSession {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  accessToken  String
+  refreshToken String
+  expiresAt    Int
+  lastSeen     DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
