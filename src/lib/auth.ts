@@ -82,6 +82,7 @@ export const config: NextAuthConfig = {
           });
           const vinData = await vinResponse.json();
           vin = vinData?.data?.[0]?.vin ?? null;
+          console.log("VIN AL LOGIN:", vin);
         } catch {
           console.error('Errore recupero VIN durante login');
         }
@@ -117,10 +118,9 @@ export const config: NextAuthConfig = {
 
     async session({ session, token }) {
       session.accessToken = token.accessToken as string;
-      (session as any).userId = token.sub; // ← usa sub dal JWT, sempre stabile
-      if (token.error) {
-        (session as any).error = token.error;
-      }
+      const userId = (token as any).vin ?? token.sub;
+      console.log("SESSION userId:", userId, "vin:", (token as any).vin, "sub:", token.sub); // ← aggiungi
+      (session as any).userId = userId;
       return session;
     },
   },
