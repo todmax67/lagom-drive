@@ -1,4 +1,7 @@
-import { Euro, Zap, Home, MapPin, Clock } from 'lucide-react';
+'use client';
+
+import { useState } from 'react';
+import { Euro, Home, MapPin, Pencil, Check, X } from 'lucide-react';
 
 interface ChargingSession {
   id: string;
@@ -9,6 +12,7 @@ interface ChargingSession {
   energyAdded: number | null;
   chargingType: string;
   totalCost: number | null;
+  costPerKwh: number | null;
   location: string | null;
   isComplete: boolean;
 }
@@ -31,13 +35,201 @@ function formatDuration(start: string, end: string | null) {
   return `${h}h ${m}m`;
 }
 
-export default function ChargingHistory({ sessions }: { sessions: ChargingSession[] }) {
+function SessionCard({
+  session,
+  onUpdate,
+}: {
+  session: ChargingSession;
+  onUpdate: (id: string, data: Partial<ChargingSession>) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [costPerKwh, setCostPerKwh] = useState(session.costPerKwh?.toString() ?? '');
+  const [location, setLocation] = useState(session.location ?? '');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const newCostPerKwh = parseFloat(costPerKwh) || 0;
+      const newTotalCost = session.energyAdded
+        ? session.energyAdded * newCostPerKwh
+        : 0;
+
+      const res = await fetch(`/api/charging/sessions/${session.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          costPerKwh: newCostPerKwh,
+          totalCost: newTotalCost,
+          location,
+        }),
+      });
+
+      if (res.ok) {
+        onUpdate(session.id, {
+          costPerKwh: newCostPerKwh,
+          totalCost: newTotalCost,
+          location,
+        });
+        setEditing(false);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className={`rounded-xl p-4 flex flex-col gap-3 ${
+        session.isComplete
+          ? 'bg-gray-900/60'
+          : 'bg-emerald-500/5 border border-emerald-500/20'
+      }`}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {session.chargingType === 'DC'
+            ? <MapPin size={14} className="text-amber-400" />
+            : <Home size={14} className="text-blue-400" />
+          }
+          <span className="text-sm font-medium text-white">
+            {session.location ?? (session.chargingType === 'DC' ? 'Colonnina' : 'Casa')}
+          </span>
+          {!session.isComplete && (
+            <span className="text-xs text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full">
+              In corso
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">
+            {formatDate(session.startedAt)}
+          </span>
+          {session.isComplete && !editing && (
+            <button
+              onClick={() => setEditing(true)}
+              className="p-1.5 rounded-lg text-gray-500 hover:text-blue-400 hover:bg-blue-400/10 transition-all"
+              title="Modifica prezzo"
+            >
+              <Pencil size={13} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Dati */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="rounded-lg bg-gray-800/60 p-2.5">
+          <p className="text-xs text-gray-500 mb-1">Livello</p>
+          <p className="text-sm text-white font-light">
+            {session.startLevel}% → {session.endLevel ?? '...'}%
+          </p>
+        </div>
+        <div className="rounded-lg bg-gray-800/60 p-2.5">
+          <p className="text-xs text-gray-500 mb-1">Energia</p>
+          <p className="text-sm text-white font-light">
+            {session.energyAdded != null
+              ? `${session.energyAdded.toFixed(1)} kWh`
+              : '...'}
+          </p>
+        </div>
+        <div className="rounded-lg bg-gray-800/60 p-2.5">
+          <p className="text-xs text-gray-500 mb-1">Durata</p>
+          <p className="text-sm text-white font-light">
+            {formatDuration(session.startedAt, session.endedAt)}
+          </p>
+        </div>
+      </div>
+
+      {/* Form modifica */}
+      {editing && (
+        <div className="border-t border-gray-700/50 pt-3 flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500">Tariffa (€/kWh)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={costPerKwh}
+                onChange={e => setCostPerKwh(e.target.value)}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                placeholder="es. 0.45"
+              />
+              {session.energyAdded && costPerKwh && (
+                <p className="text-xs text-gray-500">
+                  Totale: €{(session.energyAdded * parseFloat(costPerKwh || '0')).toFixed(2)}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500">Luogo</label>
+              <input
+                type="text"
+                value={location}
+                onChange={e => setLocation(e.target.value)}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                placeholder="es. Colonnina Esselunga"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => setEditing(false)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-gray-700/50 transition-all"
+            >
+              <X size={12} /> Annulla
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white transition-all disabled:opacity-50"
+            >
+              <Check size={12} /> {saving ? 'Salvo...' : 'Salva'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Costo */}
+      {session.totalCost != null && !editing && (
+        <div className="flex items-center justify-between border-t border-gray-700/50 pt-3">
+          <span className="text-xs text-gray-500 flex items-center gap-1">
+            <Euro size={11} />
+            {session.costPerKwh
+              ? `€${session.costPerKwh.toFixed(2)}/kWh`
+              : 'Costo sessione'}
+          </span>
+          <span className="text-sm font-medium text-emerald-400">
+            €{session.totalCost.toFixed(2)}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function ChargingHistory({
+  sessions: initialSessions,
+}: {
+  sessions: ChargingSession[];
+}) {
+  const [sessions, setSessions] = useState(initialSessions);
+
+  const handleUpdate = (id: string, data: Partial<ChargingSession>) => {
+    setSessions(prev =>
+      prev.map(s => (s.id === id ? { ...s, ...data } : s))
+    );
+  };
+
   if (sessions.length === 0) {
     return (
       <div className="rounded-2xl border border-gray-700/50 bg-gray-800/50 p-6">
         <p className="text-gray-500 text-sm text-center">
           Nessuna sessione di ricarica registrata ancora.
-          I dati appariranno automaticamente alla prossima ricarica.
         </p>
       </div>
     );
@@ -48,76 +240,9 @@ export default function ChargingHistory({ sessions }: { sessions: ChargingSessio
       <span className="text-xs font-semibold tracking-widest text-gray-400 uppercase">
         Storico Ricariche
       </span>
-
       <div className="flex flex-col gap-3">
-        {sessions.map((s) => (
-          <div
-            key={s.id}
-            className={`rounded-xl p-4 flex flex-col gap-3 ${
-              s.isComplete ? 'bg-gray-900/60' : 'bg-emerald-500/5 border border-emerald-500/20'
-            }`}
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                {s.chargingType === 'DC'
-                  ? <MapPin size={14} className="text-amber-400" />
-                  : <Home size={14} className="text-blue-400" />
-                }
-                <span className="text-sm font-medium text-white">
-                  {s.location ?? (s.chargingType === 'DC' ? 'Colonnina' : 'Casa')}
-                </span>
-                {!s.isComplete && (
-                  <span className="text-xs text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full">
-                    In corso
-                  </span>
-                )}
-              </div>
-              <span className="text-xs text-gray-500">
-                {formatDate(s.startedAt)}
-              </span>
-            </div>
-
-            {/* Dati */}
-            <div className="grid grid-cols-3 gap-2">
-              <div className="rounded-lg bg-gray-800/60 p-2.5">
-                <p className="text-xs text-gray-500 mb-1">Livello</p>
-                <p className="text-sm text-white font-light">
-                  {s.startLevel}% → {s.endLevel ?? '...'}%
-                </p>
-              </div>
-
-              <div className="rounded-lg bg-gray-800/60 p-2.5">
-                <p className="text-xs text-gray-500 mb-1">Energia</p>
-                <p className="text-sm text-white font-light">
-                  {s.energyAdded != null
-                    ? `${s.energyAdded.toFixed(1)} kWh`
-                    : '...'
-                  }
-                </p>
-              </div>
-
-              <div className="rounded-lg bg-gray-800/60 p-2.5">
-                <p className="text-xs text-gray-500 mb-1">Durata</p>
-                <p className="text-sm text-white font-light">
-                  {formatDuration(s.startedAt, s.endedAt)}
-                </p>
-              </div>
-            </div>
-
-            {/* Costo */}
-            {s.totalCost != null && (
-              <div className="flex items-center justify-between border-t border-gray-700/50 pt-3">
-                <span className="text-xs text-gray-500 flex items-center gap-1">
-                  <Euro size={11} />
-                  Costo sessione
-                </span>
-                <span className="text-sm font-medium text-emerald-400">
-                  €{s.totalCost.toFixed(2)}
-                </span>
-              </div>
-            )}
-          </div>
+        {sessions.map(s => (
+          <SessionCard key={s.id} session={s} onUpdate={handleUpdate} />
         ))}
       </div>
     </div>
