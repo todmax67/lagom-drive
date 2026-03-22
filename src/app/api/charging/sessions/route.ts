@@ -16,5 +16,7 @@ export async function GET() {
     take: 50,
   });
 
+  console.log("SESSIONS:", sessions.length, "userId:", userId); // ← aggiungi
+
   return NextResponse.json(sessions);
 }
