@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { Car, TrendingUp, MapPin, LogOut, RefreshCw, Settings, BarChart2 } from 'lucide-react';
-
+import AddChargingSession from '@/components/dashboard/AddChargingSession';
 import LoginPage from '@/components/dashboard/LoginPage';
 import BatteryCard from '@/components/dashboard/BatteryCard';
 import StatsCard from '@/components/dashboard/StatsCard';
@@ -27,12 +27,16 @@ function Dashboard() {
   const [sessions, setSessions] = useState<any[]>([]);
   const [snapshots, setSnapshots] = useState<any[]>([]);
 
-  useEffect(() => {
-    if (session?.accessToken) {
-      fetch('/api/charging/sessions').then(r => r.json()).then(setSessions).catch(() => {});
-      fetch('/api/charging/snapshots?hours=24').then(r => r.json()).then(setSnapshots).catch(() => {});
-    }
-  }, [session, status]);
+  const fetchChargingData = useCallback(async () => {
+  if (session?.accessToken) {
+    fetch('/api/charging/sessions').then(r => r.json()).then(setSessions).catch(() => {});
+    fetch('/api/charging/snapshots?hours=24').then(r => r.json()).then(setSnapshots).catch(() => {});
+  }
+}, [session]);
+
+useEffect(() => {
+  fetchChargingData();
+}, [fetchChargingData, status]);
 
   const renderContent = () => {
     if (isLoading) return <LoadingSpinner />;
@@ -63,7 +67,8 @@ function Dashboard() {
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           <MonthlyStats sessions={sessions} stats={stats} />
           <BatteryChart snapshots={snapshots} />
-          <div className="xl:col-span-2">
+          <div className="xl:col-span-2 flex flex-col gap-4">
+            <AddChargingSession onAdded={fetchChargingData} />
             <ChargingHistory sessions={sessions} />
           </div>
         </div>
