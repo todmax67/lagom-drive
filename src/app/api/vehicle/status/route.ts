@@ -10,6 +10,10 @@ export async function GET() {
     return NextResponse.json({ message: 'Non autorizzato' }, { status: 401 });
   }
 
+  // DEBUG temporaneo
+  const payload = JSON.parse(Buffer.from(session.accessToken.split('.')[1], 'base64').toString());
+  console.log("SCOPE SU VERCEL:", payload.scope);
+
   try {
     const vin = await getVin(session.accessToken);
     const [battery, isDriving] = await Promise.all([
@@ -31,7 +35,7 @@ export async function GET() {
       lastUpdated: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('Errore /api/vehicle/status:', error);
+    console.error('Errore /api/vehicle/stats DETTAGLIO:', error);
     return NextResponse.json(
       { message: 'Errore nel recupero dello stato del veicolo' },
       { status: 500 }
