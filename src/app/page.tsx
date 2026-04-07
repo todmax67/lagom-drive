@@ -16,6 +16,7 @@ import ErrorCard from '@/components/ui/ErrorCard';
 import NavButton from '@/components/ui/NavButton';
 import { useVehicleData } from '@/hooks/useVehicleData';
 import SettingsPage from '@/components/dashboard/SettingsPage';
+import MonthlyHistory from '@/components/dashboard/MonthlyHistory';
 
 type Page = 'dashboard' | 'stats' | 'location' | 'charging' | 'settings';
 
@@ -67,6 +68,9 @@ useEffect(() => {
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           <MonthlyStats sessions={sessions} stats={stats} />
           <BatteryChart snapshots={snapshots} />
+          <div className="xl:col-span-2">
+            <MonthlyHistory />
+          </div>
           <div className="xl:col-span-2 flex flex-col gap-4">
             <AddChargingSession onAdded={fetchChargingData} />
             <ChargingHistory sessions={sessions} />
