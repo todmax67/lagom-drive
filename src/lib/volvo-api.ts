@@ -183,3 +183,14 @@ export async function getFullVehicleStatus(
 
   return { status, stats, location };
 }
+
+export async function getOdometer(
+  accessToken: string,
+  vin: string
+): Promise<number> {
+  const data = await volvoFetch<OdometerResponse>(
+    `/connected-vehicle/v2/vehicles/${vin}/odometer`,
+    accessToken
+  );
+  return data.data.odometer.value;
+}

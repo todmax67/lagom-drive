@@ -1,27 +1,23 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getRechargeStatus, getEngineStatus, getStatistics, getLocation } from '@/lib/volvo-api';
+import { getRechargeStatus, getEngineStatus, getStatistics, getOdometer } from '@/lib/volvo-api';
 import { processSnapshot } from '@/lib/charging-detector';
+import { processTrip } from '@/lib/trip-detector';
 
 export async function GET(request: Request) {
-  // Verifica il token segreto per sicurezza
   const authHeader = request.headers.get('authorization');
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ message: 'Non autorizzato' }, { status: 401 });
   }
 
-  // Recupera tutti gli utenti attivi
   const sessions = await prisma.userSession.findMany();
-  
   const results = [];
 
   for (const session of sessions) {
     try {
-      // Controlla se il token è scaduto e aggiornalo
       let accessToken = session.accessToken;
-      
+
       if (Date.now() > session.expiresAt * 1000 - 60_000) {
-        // Refresh del token
         const response = await fetch('https://volvoid.eu.volvocars.com/as/token.oauth2', {
           method: 'POST',
           headers: {
@@ -42,7 +38,6 @@ export async function GET(request: Request) {
         const tokens = await response.json();
         accessToken = tokens.access_token;
 
-        // Aggiorna i token nel database
         await prisma.userSession.update({
           where: { userId: session.userId },
           data: {
@@ -53,9 +48,27 @@ export async function GET(request: Request) {
         });
       }
 
-      // Recupera dati batteria e processa snapshot
-      const battery = await getRechargeStatus(accessToken, session.userId);
+      // Recupera tutti i dati in parallelo
+      const [battery, isDriving, stats, odometer] = await Promise.all([
+        getRechargeStatus(accessToken, session.userId),
+        getEngineStatus(accessToken, session.userId).catch(() => false),
+        getStatistics(accessToken, session.userId).catch(() => null),
+        getOdometer(accessToken, session.userId).catch(() => 0),
+      ]);
+
+      // Processa snapshot ricarica
       await processSnapshot(battery, session.userId);
+
+      // Processa viaggio
+      if (stats) {
+        await processTrip({
+          battery: battery.level,
+          odometer,
+          isDriving: isDriving as boolean,
+          avgConsumption: stats.avgConsumptionKwh,
+          batteryCapacity: 69,
+        }, session.userId);
+      }
 
       results.push({ userId: session.userId, status: 'ok' });
     } catch (error) {
@@ -64,7 +77,7 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ 
+  return NextResponse.json({
     processed: results.length,
     results,
     timestamp: new Date().toISOString(),
