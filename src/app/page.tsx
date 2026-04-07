@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useSession, signOut } from 'next-auth/react';
-import { Car, TrendingUp, MapPin, LogOut, RefreshCw, Settings, BarChart2 } from 'lucide-react';
+import { Car, TrendingUp, MapPin, LogOut, RefreshCw, Settings, BarChart2, Route } from 'lucide-react';
 import AddChargingSession from '@/components/dashboard/AddChargingSession';
 import LoginPage from '@/components/dashboard/LoginPage';
 import BatteryCard from '@/components/dashboard/BatteryCard';
@@ -17,8 +17,9 @@ import NavButton from '@/components/ui/NavButton';
 import { useVehicleData } from '@/hooks/useVehicleData';
 import SettingsPage from '@/components/dashboard/SettingsPage';
 import MonthlyHistory from '@/components/dashboard/MonthlyHistory';
+import TripHistory from '@/components/dashboard/TripHistory';
 
-type Page = 'dashboard' | 'stats' | 'location' | 'charging' | 'settings';
+type Page = 'dashboard' | 'stats' | 'location' | 'charging' | 'trips' | 'settings';
 
 function Dashboard() {
   const [page, setPage] = useState<Page>('dashboard');
@@ -75,6 +76,14 @@ useEffect(() => {
             <AddChargingSession onAdded={fetchChargingData} />
             <ChargingHistory sessions={sessions} />
           </div>
+        </div>
+      );
+    }
+
+    if (page === 'trips') {
+      return (
+        <div className="max-w-2xl">
+          <TripHistory />
         </div>
       );
     }
@@ -140,6 +149,12 @@ useEffect(() => {
                 label="Statistiche"
                 isActive={page === 'stats'}
                 onClick={() => setPage('stats')}
+              />
+              <NavButton
+                icon={<Route size={18} />}
+                label="Viaggi"
+                isActive={page === 'trips'}
+                onClick={() => setPage('trips')}
               />
               <NavButton
                 icon={<MapPin size={18} />}
