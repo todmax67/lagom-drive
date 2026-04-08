@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getVin, getRechargeStatus, getEngineStatus } from '@/lib/volvo-api';
-import { processSnapshot } from '@/lib/charging-detector';
-import { prisma } from '@/lib/prisma';
+import { getVin, getStatistics } from '@/lib/volvo-api';
 
 export async function GET() {
   const session = await auth();
@@ -11,49 +9,15 @@ export async function GET() {
     return NextResponse.json({ message: 'Non autorizzato' }, { status: 401 });
   }
 
-  const userId = (session as any).userId ?? 'unknown';
-
   try {
     const vin = await getVin(session.accessToken);
-    const [battery, isDriving] = await Promise.all([
-      getRechargeStatus(session.accessToken, vin).catch(() => null),
-      getEngineStatus(session.accessToken, vin).catch(() => false),
-    ]);
+    const stats = await getStatistics(session.accessToken, vin);
 
-    if (battery) {
-      await processSnapshot(battery, userId).catch(err =>
-        console.error('Errore processSnapshot:', err)
-      );
-    }
-
-    // Aggiorna i token nella UserSession ad ogni polling
-    // così il cron job ha sempre token freschi
-    await prisma.userSession.upsert({
-      where: { userId },
-      update: {
-        accessToken: session.accessToken,
-        refreshToken: (session as any).refreshToken ?? '',
-        expiresAt: (session as any).expiresAt ?? 0,
-        lastSeen: new Date(),
-      },
-      create: {
-        userId,
-        accessToken: session.accessToken,
-        refreshToken: (session as any).refreshToken ?? '',
-        expiresAt: (session as any).expiresAt ?? 0,
-      },
-    }).catch(err => console.error('Errore UserSession update:', err));
-
-    return NextResponse.json({
-      vin,
-      battery,
-      isDriving,
-      lastUpdated: new Date().toISOString(),
-    });
+    return NextResponse.json(stats);
   } catch (error) {
-    console.error('Errore /api/vehicle/status:', error);
+    console.error('Errore /api/vehicle/stats:', error);
     return NextResponse.json(
-      { message: 'Errore nel recupero dello stato del veicolo' },
+      { message: 'Errore nel recupero delle statistiche' },
       { status: 500 }
     );
   }

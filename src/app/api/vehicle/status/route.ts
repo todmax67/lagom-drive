@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { getVin, getRechargeStatus, getEngineStatus } from '@/lib/volvo-api';
 import { processSnapshot } from '@/lib/charging-detector';
+import { prisma } from '@/lib/prisma';
 
 export async function GET() {
   const session = await auth();
@@ -10,13 +11,10 @@ export async function GET() {
     return NextResponse.json({ message: 'Non autorizzato' }, { status: 401 });
   }
 
-  // Ottieni userId dalla sessione
-  const userId = (session as any).userId ?? session.user?.email ?? 'unknown';
+  const userId = (session as any).userId ?? 'unknown';
 
   try {
     const vin = await getVin(session.accessToken);
-    // Usa VIN come userId stabile
-    const userId = vin;
     const [battery, isDriving] = await Promise.all([
       getRechargeStatus(session.accessToken, vin).catch(() => null),
       getEngineStatus(session.accessToken, vin).catch(() => false),
@@ -27,6 +25,24 @@ export async function GET() {
         console.error('Errore processSnapshot:', err)
       );
     }
+
+    // Aggiorna i token nella UserSession ad ogni polling
+    // così il cron job ha sempre token freschi
+    await prisma.userSession.upsert({
+      where: { userId },
+      update: {
+        accessToken: session.accessToken,
+        refreshToken: (session as any).refreshToken ?? '',
+        expiresAt: (session as any).expiresAt ?? 0,
+        lastSeen: new Date(),
+      },
+      create: {
+        userId,
+        accessToken: session.accessToken,
+        refreshToken: (session as any).refreshToken ?? '',
+        expiresAt: (session as any).expiresAt ?? 0,
+      },
+    }).catch(err => console.error('Errore UserSession update:', err));
 
     return NextResponse.json({
       vin,
