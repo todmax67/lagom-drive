@@ -55,6 +55,7 @@ export async function GET(request: Request) {
         getStatistics(accessToken, session.userId).catch(() => null),
         getOdometer(accessToken, session.userId).catch(() => 0),
       ]);
+      console.log(`userId: ${session.userId}, isDriving: ${isDriving}, odometer: ${odometer}, battery: ${battery.level}`);
 
       // Processa snapshot ricarica
       await processSnapshot(battery, session.userId);
