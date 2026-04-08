@@ -150,7 +150,7 @@ export async function getEngineStatus(
     `/connected-vehicle/v2/vehicles/${vin}/engine-status`,
     accessToken
   );
-
+  console.log('RAW ENGINE STATUS:', JSON.stringify(data.data));
   return data.data.engineStatus.value === 'ENGINE_STATUS_RUNNING';
 }
 
