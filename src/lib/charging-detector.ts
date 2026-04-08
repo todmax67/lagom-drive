@@ -4,6 +4,7 @@ import type { VehicleStatus } from '@/types/volvo';
 export async function processSnapshot(
   battery: VehicleStatus['battery'],
   userId: string
+  odometer?: number
 ) {
   await prisma.batterySnapshot.create({
     data: {
@@ -13,6 +14,7 @@ export async function processSnapshot(
       isCharging: battery.isCharging,
       isConnected: battery.isConnected,
       chargingType: battery.chargingType ?? null,
+      odometer: data.odometer ?? null, 
     },
   });
 

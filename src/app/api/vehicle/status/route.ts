@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getVin, getRechargeStatus, getEngineStatus } from '@/lib/volvo-api';
 import { processSnapshot } from '@/lib/charging-detector';
 import { prisma } from '@/lib/prisma';
+import { getVin, getRechargeStatus, getEngineStatus, getOdometer } from '@/lib/volvo-api';
 
 export async function GET() {
   const session = await auth();
@@ -15,13 +15,14 @@ export async function GET() {
 
   try {
     const vin = await getVin(session.accessToken);
-    const [battery, isDriving] = await Promise.all([
+    const [battery, isDriving, odometer] = await Promise.all([
       getRechargeStatus(session.accessToken, vin).catch(() => null),
       getEngineStatus(session.accessToken, vin).catch(() => false),
+      getOdometer(session.accessToken, vin).catch(() => 0),
     ]);
 
     if (battery) {
-      await processSnapshot(battery, userId).catch(err =>
+      await processSnapshot(battery, userId, odometer as number).catch(err =>
         console.error('Errore processSnapshot:', err)
       );
     }

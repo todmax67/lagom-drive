@@ -11,12 +11,13 @@ datasource db {
 model BatterySnapshot {
   id           String   @id @default(cuid())
   createdAt    DateTime @default(now())
-  userId      String  
+  userId       String
   level        Int
   range        Int
   isCharging   Boolean
   isConnected  Boolean
   chargingType String?
+  odometer     Int?    
 
   @@index([userId, createdAt])
 }

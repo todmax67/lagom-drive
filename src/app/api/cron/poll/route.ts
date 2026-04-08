@@ -58,14 +58,13 @@ export async function GET(request: Request) {
       console.log(`userId: ${session.userId}, isDriving: ${isDriving}, odometer: ${odometer}, battery: ${battery.level}`);
 
       // Processa snapshot ricarica
-      await processSnapshot(battery, session.userId);
+      await processSnapshot(battery, session.userId, odometer);
 
       // Processa viaggio
       if (stats) {
         await processTrip({
           battery: battery.level,
           odometer,
-          isDriving: isDriving as boolean,
           avgConsumption: stats.avgConsumptionKwh,
           batteryCapacity: 69,
         }, session.userId);
