@@ -137,8 +137,12 @@ export const config: NextAuthConfig = {
 
     async session({ session, token }) {
       session.accessToken = token.accessToken as string;
-      const userId = (token as any).vin ?? token.sub;
-      (session as any).userId = userId;
+      (session as any).userId = (token as any).vin ?? token.sub;
+      (session as any).refreshToken = token.refreshToken; // ← aggiungi
+      (session as any).expiresAt = token.expiresAt;       // ← aggiungi
+      if (token.error) {
+        (session as any).error = token.error;
+      }
       return session;
     },
   },
