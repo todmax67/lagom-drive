@@ -3,7 +3,7 @@ import type { VehicleStatus } from '@/types/volvo';
 
 export async function processSnapshot(
   battery: VehicleStatus['battery'],
-  userId: string
+  userId: string,
   odometer?: number
 ) {
   await prisma.batterySnapshot.create({
