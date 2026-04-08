@@ -14,7 +14,7 @@ export async function processSnapshot(
       isCharging: battery.isCharging,
       isConnected: battery.isConnected,
       chargingType: battery.chargingType ?? null,
-      odometer: data.odometer ?? null, 
+      odometer: odometer ?? null, 
     },
   });
 
