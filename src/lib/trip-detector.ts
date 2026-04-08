@@ -22,28 +22,28 @@ export async function processTrip(data: VehicleData, userId: string) {
     orderBy: { startedAt: 'desc' },
   });
 
-  // Cerca l'ultimo snapshot per confrontare l'odometro
-  const lastSnapshot = await prisma.batterySnapshot.findFirst({
-    where: { 
-      userId,
-      odometer: { not: null },
-      createdAt: { lt: new Date(Date.now() - 60_000) } // almeno 1 minuto fa
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  // Cerca gli ultimi 2 snapshot con odometro valido
+const lastSnapshots = await prisma.batterySnapshot.findMany({
+  where: { 
+    userId,
+    odometer: { not: null },
+  },
+  orderBy: { createdAt: 'desc' },
+  take: 2,
+});
 
-  const lastOdometer = (lastSnapshot as any)?.odometer ?? null;
+// Il primo è quello appena creato, il secondo è quello precedente
+if (lastSnapshots.length < 2) {
+  console.log('Trip detector — non abbastanza snapshot, skip');
+  return;
+}
 
-  // Se non abbiamo un odometro precedente non possiamo calcolare il delta
-  if (lastOdometer === null) {
-    console.log('Trip detector — nessun odometro precedente disponibile, skip');
-    return;
-  }
+const currentOdometer = (lastSnapshots[0] as any).odometer;
+const lastOdometer = (lastSnapshots[1] as any).odometer;
+const odometerDelta = currentOdometer - lastOdometer;
+const isMoving = odometerDelta > 0;
 
-  const odometerDelta = data.odometer - lastOdometer;
-  const isMoving = odometerDelta > 0;
-
-  console.log(`Trip detector — odometer: ${data.odometer}, lastOdometer: ${lastOdometer}, delta: ${odometerDelta}, isMoving: ${isMoving}`);
+console.log(`Trip detector — odometer: ${currentOdometer}, lastOdometer: ${lastOdometer}, delta: ${odometerDelta}, isMoving: ${isMoving}`);
 
   if (isMoving) {
     if (!openTrip) {
@@ -60,34 +60,46 @@ export async function processTrip(data: VehicleData, userId: string) {
     return;
   }
 
-  // Auto ferma — chiudi viaggio aperto se esiste
-  if (openTrip) {
-    const distanceKm = data.odometer - (openTrip.startOdometer ?? data.odometer);
-    
-    // Solo se ha percorso almeno 0.5 km
-    if (distanceKm < 0.5) {
-      await prisma.trip.delete({ where: { id: openTrip.id } });
-      return;
-    }
-
-    const batteryDrop = openTrip.startBattery - data.battery;
-    const energyUsedKwh = Math.max(0, (batteryDrop / 100) * capacity);
-    const theoreticalKwh = (distanceKm / 100) * data.avgConsumption;
-    const energyRegenKwh = Math.max(0, theoreticalKwh - energyUsedKwh);
-    const avgConsumption = distanceKm > 0 ? (energyUsedKwh / distanceKm) * 100 : 0;
-
-    await prisma.trip.update({
-      where: { id: openTrip.id },
+  if (isMoving) {
+  if (!openTrip) {
+    await prisma.trip.create({
       data: {
-        endedAt: new Date(),
-        endBattery: data.battery,
-        endOdometer: data.odometer,
-        distanceKm: Math.max(0, distanceKm),
-        energyUsedKwh,
-        energyRegenKwh,
-        avgConsumption,
-        isComplete: true,
+        userId,
+        startedAt: new Date(),
+        startBattery: data.battery,
+        startOdometer: lastOdometer,
       },
     });
   }
+  return;
+}
+
+if (openTrip) {
+  const distanceKm = currentOdometer - (openTrip.startOdometer ?? currentOdometer);
+  
+  if (distanceKm < 0.5) {
+    await prisma.trip.delete({ where: { id: openTrip.id } });
+    return;
+  }
+
+  const batteryDrop = openTrip.startBattery - data.battery;
+  const energyUsedKwh = Math.max(0, (batteryDrop / 100) * capacity);
+  const theoreticalKwh = (distanceKm / 100) * data.avgConsumption;
+  const energyRegenKwh = Math.max(0, theoreticalKwh - energyUsedKwh);
+  const avgConsumption = distanceKm > 0 ? (energyUsedKwh / distanceKm) * 100 : 0;
+
+  await prisma.trip.update({
+    where: { id: openTrip.id },
+    data: {
+      endedAt: new Date(),
+      endBattery: data.battery,
+      endOdometer: currentOdometer,
+      distanceKm: Math.max(0, distanceKm),
+      energyUsedKwh,
+      energyRegenKwh,
+      avgConsumption,
+      isComplete: true,
+    },
+  });
+}
 }
