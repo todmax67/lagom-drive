@@ -24,12 +24,22 @@ export async function processTrip(data: VehicleData, userId: string) {
 
   // Cerca l'ultimo snapshot per confrontare l'odometro
   const lastSnapshot = await prisma.batterySnapshot.findFirst({
-    where: { userId },
+    where: { 
+      userId,
+      odometer: { not: null },
+      createdAt: { lt: new Date(Date.now() - 60_000) } // almeno 1 minuto fa
+    },
     orderBy: { createdAt: 'desc' },
-    skip: 1, // salta l'ultimo appena creato
   });
 
-  const lastOdometer = (lastSnapshot as any)?.odometer ?? data.odometer;
+  const lastOdometer = (lastSnapshot as any)?.odometer ?? null;
+
+  // Se non abbiamo un odometro precedente non possiamo calcolare il delta
+  if (lastOdometer === null) {
+    console.log('Trip detector — nessun odometro precedente disponibile, skip');
+    return;
+  }
+
   const odometerDelta = data.odometer - lastOdometer;
   const isMoving = odometerDelta > 0;
 
