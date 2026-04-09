@@ -12,6 +12,15 @@ export async function GET(request: Request) {
 
   await prisma.$connect();
 
+  // Ping per svegliare Neon prima delle query principali
+  try {
+    await prisma.$executeRaw`SELECT 1`;
+  } catch {
+    // Ignora errore del ping, riprova
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    await prisma.$executeRaw`SELECT 1`;
+  }
+
   try {
   const sessions = await prisma.userSession.findMany();
   const results = [];
