@@ -10,6 +10,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ message: 'Non autorizzato' }, { status: 401 });
   }
 
+  await prisma.$connect();
+
+  try {
   const sessions = await prisma.userSession.findMany();
   const results = [];
 
@@ -82,4 +85,7 @@ export async function GET(request: Request) {
     results,
     timestamp: new Date().toISOString(),
   });
+  } finally {
+    await prisma.$disconnect();
+  }
 }
