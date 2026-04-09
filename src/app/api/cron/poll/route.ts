@@ -63,15 +63,13 @@ export async function GET(request: Request) {
       // Processa snapshot ricarica
       await processSnapshot(battery, session.userId, odometer);
 
-      // Processa viaggio
-      if (stats) {
-        await processTrip({
-          battery: battery.level,
-          odometer,
-          avgConsumption: stats.avgConsumptionKwh,
-          batteryCapacity: 69,
-        }, session.userId);
-      }
+      // Processa viaggio — usa consumo medio da stats o default 18 kWh/100km
+      await processTrip({
+        battery: battery.level,
+        odometer,
+        avgConsumption: stats?.avgConsumptionKwh ?? 18,
+        batteryCapacity: 69,
+      }, session.userId).catch(err => console.error('Errore processTrip:', err));
 
       results.push({ userId: session.userId, status: 'ok' });
     } catch (error) {
