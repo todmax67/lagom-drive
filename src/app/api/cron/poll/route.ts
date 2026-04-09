@@ -12,14 +12,22 @@ export async function GET(request: Request) {
 
   await prisma.$connect();
 
-  // Ping per svegliare Neon prima delle query principali
-  try {
-    await prisma.$executeRaw`SELECT 1`;
-  } catch {
-    // Ignora errore del ping, riprova
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    await prisma.$executeRaw`SELECT 1`;
-  }
+  // Sveglia Neon con retry progressivo
+    let connected = false;
+    for (let i = 0; i < 3; i++) {
+      try {
+        await prisma.$executeRaw`SELECT 1`;
+        connected = true;
+        break;
+      } catch {
+        console.log(`Neon ping tentativo ${i + 1} fallito, attendo...`);
+        await new Promise(resolve => setTimeout(resolve, 3000 * (i + 1)));
+      }
+    }
+
+    if (!connected) {
+      return NextResponse.json({ error: 'Database non raggiungibile' }, { status: 503 });
+    }
 
   try {
   const sessions = await prisma.userSession.findMany();
