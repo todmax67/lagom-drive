@@ -13,7 +13,7 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings>({
     homeTariff: 0.25,
     publicTariff: 0.50,
-    batteryCapacity: 69.0,
+    batteryCapacity: 67.0,
   });
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -133,7 +133,7 @@ export default function SettingsPage() {
               min="10"
               max="200"
               value={settings.batteryCapacity}
-              onChange={e => setSettings(s => ({ ...s, batteryCapacity: parseFloat(e.target.value) || 69 }))}
+              onChange={e => setSettings(s => ({ ...s, batteryCapacity: parseFloat(e.target.value) || 67 }))}
               className="w-full bg-gray-900/60 border border-gray-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
             />
             <span className="text-gray-500 text-sm whitespace-nowrap">kWh</span>

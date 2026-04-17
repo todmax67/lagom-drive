@@ -45,7 +45,7 @@ model Settings {
   userId          String   @unique
   homeTariff      Float    @default(0.25)
   publicTariff    Float    @default(0.50)
-  batteryCapacity Float    @default(69.0)
+  batteryCapacity Float    @default(67.0)
   updatedAt       DateTime @updatedAt
 }
 
@@ -72,6 +72,9 @@ model Trip {
   energyUsedKwh     Float?
   energyRegenKwh    Float?
   avgConsumption    Float?
+  volvoAvgConsumption  Float?
+  volvoTripMeterStart  Float?
+  volvoTripMeterEnd    Float?
   isComplete        Boolean  @default(false)
 
   @@index([userId, startedAt])

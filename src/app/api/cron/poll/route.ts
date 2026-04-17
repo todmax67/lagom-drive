@@ -85,7 +85,7 @@ export async function GET(request: Request) {
         battery: battery.level,
         odometer,
         avgConsumption: stats?.avgConsumptionKwh ?? 18,
-        batteryCapacity: 69,
+        volvoTripMeterAuto: stats?.tripMeter2Km ?? null,
       }, session.userId).catch(err => console.error('Errore processTrip:', err));
 
       results.push({ userId: session.userId, status: 'ok' });

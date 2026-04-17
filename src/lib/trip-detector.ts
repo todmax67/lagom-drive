@@ -4,7 +4,7 @@ interface VehicleData {
   battery: number;
   odometer: number;
   avgConsumption: number;
-  batteryCapacity: number;
+  volvoTripMeterAuto: number | null;
 }
 
 export async function processTrip(data: VehicleData, userId: string) {
@@ -57,6 +57,7 @@ export async function processTrip(data: VehicleData, userId: string) {
           startedAt: s1.createdAt,
           startBattery: data.battery,
           startOdometer: s1.odometer,
+          volvoTripMeterStart: data.volvoTripMeterAuto,
         },
       });
     }
@@ -97,6 +98,8 @@ export async function processTrip(data: VehicleData, userId: string) {
       energyUsedKwh,
       energyRegenKwh,
       avgConsumption,
+      volvoAvgConsumption: data.avgConsumption,
+      volvoTripMeterEnd: data.volvoTripMeterAuto,
       isComplete: true,
     },
   });
