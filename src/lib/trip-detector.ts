@@ -38,41 +38,28 @@ if (lastSnapshots.length < 2) {
   return;
 }
 
+const MIN_MOVE_KM = 0.2;
+
 const currentOdometer = (lastSnapshots[0] as any).odometer;
 const lastOdometer = (lastSnapshots[1] as any).odometer;
 const odometerDelta = currentOdometer - lastOdometer;
-const isMoving = odometerDelta > 0;
+const isMoving = odometerDelta >= MIN_MOVE_KM;
 
 console.log(`Trip detector — odometer: ${currentOdometer}, lastOdometer: ${lastOdometer}, delta: ${odometerDelta}, isMoving: ${isMoving}`);
 
   if (isMoving) {
     if (!openTrip) {
-      // Inizia nuovo viaggio
       await prisma.trip.create({
         data: {
           userId,
           startedAt: new Date(),
           startBattery: data.battery,
-          startOdometer: data.odometer - odometerDelta,
+          startOdometer: lastOdometer,
         },
       });
     }
     return;
   }
-
-  if (isMoving) {
-  if (!openTrip) {
-    await prisma.trip.create({
-      data: {
-        userId,
-        startedAt: new Date(),
-        startBattery: data.battery,
-        startOdometer: lastOdometer,
-      },
-    });
-  }
-  return;
-}
 
 if (openTrip) {
   const distanceKm = currentOdometer - (openTrip.startOdometer ?? currentOdometer);
