@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Lagom Drive">
+  <defs>
+    <clipPath id="ld-circle">
+      <circle cx="100" cy="100" r="84"/>
+    </clipPath>
+    <!-- La strada: larga in primo piano, si chiude verso il germoglio -->
+    <path id="ld-road"
+          d="M 26 190
+             C 52 164, 52 138, 84 118
+             C 104 105, 114 99, 118 90
+             C 127 104, 133 122, 141 146
+             C 149 169, 153 181, 156 190 Z"/>
+  </defs>
+
+  <circle cx="100" cy="100" r="84" fill="#b9c9b2"/>
+
+  <g clip-path="url(#ld-circle)">
+    <!-- Bordo chiaro esterno: stacca la strada dal prato -->
+    <use href="#ld-road" fill="#a97f60" stroke="#fdfdfb" stroke-width="9" stroke-linejoin="round"/>
+    <use href="#ld-road" fill="#a97f60" stroke="#1c1c1c" stroke-width="2.6" stroke-linejoin="round"/>
+
+    <!-- Mezzeria: i tratti si accorciano verso il punto di fuga -->
+    <path d="M 92 190 C 98 166, 92 140, 104 118"
+          fill="none" stroke="#fdfdfb" stroke-width="3.6" stroke-linecap="round"
+          stroke-dasharray="13 11"/>
+    <path d="M 104 118 C 111 106, 115 98, 117 92"
+          fill="none" stroke="#fdfdfb" stroke-width="2.6" stroke-linecap="round"
+          stroke-dasharray="6 6"/>
+  </g>
+
+  <circle cx="100" cy="100" r="84" fill="none" stroke="#1c1c1c" stroke-width="2.6"/>
+
+  <!-- Il germoglio nasce dove finisce la strada -->
+  <path d="M 118 90 C 121 76, 125 66, 131 56"
+        fill="none" stroke="#1c1c1c" stroke-width="2.6" stroke-linecap="round"/>
+
+  <!-- Foglia grande -->
+  <path d="M 130 58 C 140 38, 158 28, 172 32 C 174 50, 164 68, 146 74 C 134 78, 126 70, 130 58 Z"
+        fill="#a97f60" stroke="#fdfdfb" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M 130 58 C 140 38, 158 28, 172 32 C 174 50, 164 68, 146 74 C 134 78, 126 70, 130 58 Z"
+        fill="#a97f60" stroke="#1c1c1c" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M 134 68 C 146 58, 158 46, 166 38"
+        fill="none" stroke="#1c1c1c" stroke-width="1.9" stroke-linecap="round"/>
+
+  <!-- Foglia piccola -->
+  <path d="M 116 80 C 104 64, 88 60, 76 66 C 78 82, 92 92, 106 90 C 115 89, 119 86, 116 80 Z"
+        fill="#9fb497" stroke="#fdfdfb" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M 116 80 C 104 64, 88 60, 76 66 C 78 82, 92 92, 106 90 C 115 89, 119 86, 116 80 Z"
+        fill="#9fb497" stroke="#1c1c1c" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M 112 84 C 100 78, 90 72, 82 68"
+        fill="none" stroke="#1c1c1c" stroke-width="1.9" stroke-linecap="round"/>
+</svg>

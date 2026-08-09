@@ -30,9 +30,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="it">
-      <head>
-        <link rel="apple-touch-icon" href="/icon-180.png" />
-      </head>
+      {/* favicon e apple-touch-icon vengono da app/icon.svg e app/apple-icon.png */}
       <body className={`${inter.className} bg-gray-900 text-white`}>
         <Providers>{children}</Providers>
       </body>
