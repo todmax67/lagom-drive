@@ -3,17 +3,18 @@
 import { useState, useEffect } from 'react';
 import { Route, Zap, Battery, TrendingDown, Leaf } from 'lucide-react';
 
+// I nullable rispecchiano lo schema Prisma: i campi energetici mancano sui
+// viaggi ricostruiti dallo storico e su quelli troppo brevi per una stima
+// onesta, il resto può mancare sui viaggi incompleti.
 interface Trip {
   id: string;
   startedAt: string;
-  endedAt: string;
-  distanceKm: number;
+  endedAt: string | null;
+  distanceKm: number | null;
   startBattery: number;
-  endBattery: number;
-  energyUsedKwh: number;
-  energyRegenKwh: number;
-  // Assente sui viaggi troppo brevi, dove l'arrotondamento dell'1% del SOC
-  // renderebbe il valore privo di significato.
+  endBattery: number | null;
+  energyUsedKwh: number | null;
+  energyRegenKwh: number | null;
   avgConsumption: number | null;
 }
 
@@ -26,7 +27,8 @@ function formatDate(dateStr: string) {
   });
 }
 
-function formatDuration(start: string, end: string) {
+function formatDuration(start: string, end: string | null) {
+  if (!end) return 'n/d';
   const diff = new Date(end).getTime() - new Date(start).getTime();
   const h = Math.floor(diff / 3600000);
   const m = Math.floor((diff % 3600000) / 60000);
@@ -78,7 +80,7 @@ export default function TripHistory() {
               <div className="flex items-center gap-2">
                 <Route size={14} className="text-blue-400" />
                 <span className="text-sm font-medium text-white">
-                  {trip.distanceKm.toFixed(1)} km
+                  {trip.distanceKm !== null ? `${trip.distanceKm.toFixed(1)} km` : 'distanza n/d'}
                 </span>
               </div>
               <span className="text-xs text-gray-500">
@@ -91,7 +93,7 @@ export default function TripHistory() {
               <div className="rounded-lg bg-gray-800/60 p-2.5">
                 <p className="text-xs text-gray-500 mb-1">Batteria</p>
                 <p className="text-sm text-white font-light">
-                  {trip.startBattery}% → {trip.endBattery}%
+                  {trip.startBattery}% → {trip.endBattery ?? '—'}%
                 </p>
               </div>
 
@@ -107,20 +109,24 @@ export default function TripHistory() {
                 <div>
                   <p className="text-xs text-gray-500 mb-1">Consumato</p>
                   <p className="text-sm text-white font-light">
-                    {trip.energyUsedKwh.toFixed(1)} kWh
+                    {trip.energyUsedKwh !== null ? `${trip.energyUsedKwh.toFixed(1)} kWh` : 'n/d'}
                   </p>
                 </div>
               </div>
 
-              <div className="rounded-lg bg-gray-800/60 p-2.5 flex items-start gap-2">
-                <Leaf size={12} className="text-emerald-400 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">Rigenerato</p>
-                  <p className="text-sm text-white font-light">
-                    {trip.energyRegenKwh.toFixed(1)} kWh
-                  </p>
+              {/* Manca sui viaggi ricostruiti dallo storico: dipende dal consumo
+                  medio Volvo del momento, che negli snapshot non è conservato. */}
+              {trip.energyRegenKwh !== null && (
+                <div className="rounded-lg bg-gray-800/60 p-2.5 flex items-start gap-2">
+                  <Leaf size={12} className="text-emerald-400 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Rigenerato</p>
+                    <p className="text-sm text-white font-light">
+                      {trip.energyRegenKwh.toFixed(1)} kWh
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Consumo medio */}
