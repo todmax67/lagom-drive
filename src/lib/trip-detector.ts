@@ -7,6 +7,71 @@ interface VehicleData {
   volvoTripMeterAuto: number | null;
 }
 
+const MIN_MOVE_KM = 0.2;
+const MIN_TRIP_KM = 0.5;
+const MAX_PLAUSIBLE_DELTA_KM = 500;
+
+// Quanto indietro cercare la partenza. Con il polling adattivo la cadenza varia,
+// quindi il limite vero è temporale; il take serve solo a non caricare tutto.
+const MAX_LOOKBACK_MS = 6 * 60 * 60 * 1000;
+const LOOKBACK_SNAPSHOTS = 250;
+
+// Snapshot consecutivi a batteria identica oltre i quali si assume veicolo fermo.
+// Sotto questa soglia il tratto piatto è solo la risoluzione dell'1% del SOC.
+const FLAT_RUN_PARKED = 3;
+
+type Snap = {
+  createdAt: Date;
+  level: number;
+  odometer: number | null;
+  isCharging: boolean;
+};
+
+/**
+ * L'endpoint odometro di Volvo non si aggiorna durante la marcia: riporta il
+ * nuovo valore solo a veicolo parcheggiato. Il livello batteria invece è live.
+ *
+ * Ne consegue che un salto dell'odometro segnala un viaggio GIÀ CONCLUSO, non
+ * uno in corso: il viaggio va scritto tutto in una volta, ricostruendo la
+ * finestra all'indietro sulla batteria. Trattare il salto come "sto partendo"
+ * produceva viaggi di 3-4 minuti (il ritardo di aggiornamento) con consumo
+ * nullo, perché start e end battery finivano entrambi dopo la marcia.
+ */
+function trovaPartenza(snaps: Snap[], jumpIdx: number): number {
+  const end = snaps[jumpIdx];
+  const odoPrima = snaps[jumpIdx - 1].odometer;
+
+  // Finestra cieca: gli snapshot che condividono l'odometro pre-salto, cioè
+  // tutto il tempo in cui l'auto ha guidato senza che l'odometro lo dicesse.
+  let inizio = jumpIdx - 1;
+  while (
+    inizio > 0 &&
+    snaps[inizio - 1].odometer === odoPrima &&
+    !snaps[inizio - 1].isCharging &&
+    end.createdAt.getTime() - snaps[inizio - 1].createdAt.getTime() <= MAX_LOOKBACK_MS
+  ) {
+    inizio--;
+  }
+
+  // Nella finestra la batteria cala guidando e resta piatta da fermi: la
+  // partenza è dove inizia il calo, quindi si scartano i tratti piatti iniziali
+  // abbastanza lunghi da indicare una sosta.
+  let partenza = inizio;
+  while (partenza < jumpIdx - 1) {
+    let run = 1;
+    while (
+      partenza + run < jumpIdx &&
+      snaps[partenza + run].level === snaps[partenza].level
+    ) {
+      run++;
+    }
+    if (run >= FLAT_RUN_PARKED) partenza += run - 1;
+    else break;
+  }
+
+  return partenza;
+}
+
 export async function processTrip(data: VehicleData, userId: string) {
   const settings = await prisma.settings.upsert({
     where: { userId },
@@ -16,117 +81,73 @@ export async function processTrip(data: VehicleData, userId: string) {
 
   const capacity = settings.batteryCapacity;
 
-  // Cerca viaggio aperto
-  const openTrip = await prisma.trip.findFirst({
-    where: { userId, isComplete: false },
-    orderBy: { startedAt: 'desc' },
-  });
-
-  const MIN_MOVE_KM = 0.2;
-
-  // Ultimi 3 snapshot con odometro: servono per confermare "fermo" su 2 intervalli consecutivi
-  const lastSnapshots = await prisma.batterySnapshot.findMany({
+  // I salti sono rari, qualche volta al giorno: il caso comune deve restare a
+  // due righe, e la finestra di lookback si carica solo quando serve davvero.
+  const ultimi2 = await prisma.batterySnapshot.findMany({
     where: { userId, odometer: { not: null } },
     orderBy: { createdAt: 'desc' },
-    take: 3,
+    take: 2,
+    select: { createdAt: true, level: true, odometer: true, isCharging: true },
   });
 
-  if (lastSnapshots.length < 2) {
+  if (ultimi2.length < 2) {
     console.log('Trip detector — non abbastanza snapshot, skip');
     return;
   }
 
-  const s0 = lastSnapshots[0] as any; // appena creato
-  const s1 = lastSnapshots[1] as any; // precedente
-  const s2 = lastSnapshots[2] as any | undefined; // before-previous (può mancare)
+  const fine = ultimi2[0] as Snap;
+  const precedente = ultimi2[1] as Snap;
+  const distanceKm = (fine.odometer ?? 0) - (precedente.odometer ?? 0);
 
-  const delta01 = s0.odometer - s1.odometer;
-  const delta12 = s2 ? s1.odometer - s2.odometer : null;
+  if (distanceKm < MIN_MOVE_KM) return;
 
-  // L'odometro può solo crescere, e non di centinaia di km fra due poll.
-  // Un delta fuori scala significa dato corrotto, non un viaggio: proseguire
-  // creerebbe viaggi fantasma o, peggio, cancellerebbe quello vero più sotto.
-  const MAX_PLAUSIBLE_DELTA_KM = 500;
-  const implausible =
-    delta01 < 0 ||
-    delta01 > MAX_PLAUSIBLE_DELTA_KM ||
-    (delta12 !== null && (delta12 < 0 || delta12 > MAX_PLAUSIBLE_DELTA_KM));
-
-  if (implausible) {
-    console.error(
-      `Trip detector — delta odometrico implausibile (delta01: ${delta01}, delta12: ${delta12}), ciclo saltato`
-    );
+  if (distanceKm > MAX_PLAUSIBLE_DELTA_KM) {
+    console.error(`Trip detector — salto odometrico implausibile (${distanceKm} km), ignorato`);
     return;
   }
 
-  const isMoving = delta01 >= MIN_MOVE_KM;
-  const wasMoving = delta12 !== null ? delta12 >= MIN_MOVE_KM : false;
+  if (distanceKm < MIN_TRIP_KM) return;
 
-  console.log(
-    `Trip detector — odo: ${s0.odometer}, delta01: ${delta01}, delta12: ${delta12}, isMoving: ${isMoving}, wasMoving: ${wasMoving}`
-  );
+  // Il salto viene osservato una volta sola, ma un poll ripetuto sugli stessi
+  // snapshot creerebbe un duplicato: l'odometro di arrivo lo identifica.
+  const giaRegistrato = await prisma.trip.findFirst({
+    where: { userId, endOdometer: fine.odometer },
+  });
+  if (giaRegistrato) return;
 
-  if (isMoving) {
-    if (!openTrip) {
-      await prisma.trip.create({
-        data: {
-          userId,
-          startedAt: s1.createdAt,
-          startBattery: data.battery,
-          startOdometer: s1.odometer,
-          volvoTripMeterStart: data.volvoTripMeterAuto,
-        },
-      });
-    }
-    return;
-  }
+  const finestra = await prisma.batterySnapshot.findMany({
+    where: {
+      userId,
+      odometer: { not: null },
+      createdAt: {
+        gte: new Date(fine.createdAt.getTime() - MAX_LOOKBACK_MS),
+        lte: fine.createdAt,
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: LOOKBACK_SNAPSHOTS,
+    select: { createdAt: true, level: true, odometer: true, isCharging: true },
+  });
 
-  // isMoving === false da qui in poi. Chiudi SOLO se anche l'intervallo precedente era fermo
-  // (evita di chiudere al primo poll "fermo" — es. semaforo).
-  if (!openTrip) return;
+  const snaps = finestra.reverse() as Snap[];
+  const jumpIdx = snaps.length - 1;
 
-  if (wasMoving) {
-    console.log('Trip detector — appena fermato, attendo conferma');
-    return;
-  }
+  // Serve almeno lo snapshot pre-salto per ricostruire: senza, si ripiega su
+  // quello che si ha invece di sollevare un errore che il cron inghiottirebbe.
+  const partenza = jumpIdx >= 1 ? snaps[trovaPartenza(snaps, jumpIdx)] : precedente;
 
-  const endOdometer = s1.odometer;
-  const endedAt = s2?.createdAt ?? s1.createdAt;
-  const distanceKm = endOdometer - (openTrip.startOdometer ?? endOdometer);
+  const batteryDrop = partenza.level - fine.level;
 
-  // Cancella solo i viaggi davvero troppo brevi. Una distanza negativa non è
-  // un viaggio corto ma un odometro incoerente: in quel caso il viaggio resta
-  // aperto e verrà chiuso al ciclo successivo con dati sani.
-  if (distanceKm < 0 || !Number.isFinite(distanceKm)) {
-    console.error(`Trip detector — distanza incoerente (${distanceKm}), viaggio lasciato aperto`);
-    return;
-  }
-
-  if (distanceKm < 0.5) {
-    await prisma.trip.delete({ where: { id: openTrip.id } });
-    return;
-  }
-
-  const batteryDrop = openTrip.startBattery - data.battery;
-
-  // Derivati dalla capacità impostata: utili da mostrare, ma NON utilizzabili per
-  // stimare la capacità stessa (sarebbe circolare — uscirebbe sempre `capacity`).
+  // Derivati dalla capacità impostata: non utilizzabili per stimare la capacità.
   const energyUsedKwh = Math.max(0, (batteryDrop / 100) * capacity);
   const avgConsumption = distanceKm > 0 ? (energyUsedKwh / distanceKm) * 100 : 0;
 
   // Indipendente dalla capacità impostata: viene dal consumo medio di Volvo.
   const energyFromVolvoKwh = (distanceKm / 100) * data.avgConsumption;
 
-  // NB: non è regen misurato, è lo scarto fra la stima Volvo e quella da SOC.
-  // Il nome resta per compatibilità con la UI esistente.
+  // Non è regen misurato, è lo scarto fra le due stime.
   const energyRegenKwh = Math.max(0, energyFromVolvoKwh - energyUsedKwh);
 
-  // Stima della capacità reale incrociando le due fonti:
-  //   capacità = consumo_volvo × distanza ÷ ΔSOC
-  // Su un singolo viaggio è rumorosa (il consumo Volvo è una media di lungo
-  // periodo, non del viaggio), quindi va letta aggregata su molti viaggi.
-  // Viaggi corti o con ΔSOC piccolo amplificano l'errore di arrotondamento
-  // dell'1% del SOC, per questo sono esclusi.
   const MIN_CALIB_KM = 15;
   const MIN_CALIB_SOC = 10;
   const eligible =
@@ -135,20 +156,29 @@ export async function processTrip(data: VehicleData, userId: string) {
   const capacityEstimateKwh =
     rawCapacity !== null && rawCapacity >= 30 && rawCapacity <= 120 ? rawCapacity : null;
 
-  await prisma.trip.update({
-    where: { id: openTrip.id },
+  console.log(
+    `Trip detector — viaggio di ${distanceKm} km ricostruito: ` +
+      `${partenza.createdAt.toISOString()} -> ${fine.createdAt.toISOString()}, ` +
+      `batteria ${partenza.level}% -> ${fine.level}%`
+  );
+
+  await prisma.trip.create({
     data: {
-      endedAt,
-      endBattery: data.battery,
-      endOdometer,
-      distanceKm: Math.max(0, distanceKm),
+      userId,
+      startedAt: partenza.createdAt,
+      endedAt: fine.createdAt,
+      startBattery: partenza.level,
+      endBattery: fine.level,
+      startOdometer: precedente.odometer,
+      endOdometer: fine.odometer,
+      distanceKm,
       energyUsedKwh,
       energyRegenKwh,
       avgConsumption,
-      volvoAvgConsumption: data.avgConsumption,
-      volvoTripMeterEnd: data.volvoTripMeterAuto,
       energyFromVolvoKwh,
       capacityEstimateKwh,
+      volvoAvgConsumption: data.avgConsumption,
+      volvoTripMeterEnd: data.volvoTripMeterAuto,
       isComplete: true,
     },
   });
