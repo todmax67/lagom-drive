@@ -59,6 +59,39 @@ model UserSession {
   updatedAt    DateTime @updatedAt
 }
 
+model ObdDevice {
+  id        String    @id @default(cuid())
+  userId    String
+  name      String
+  tokenHash String    @unique
+  createdAt DateTime  @default(now())
+  lastSeen  DateTime?
+
+  @@index([userId])
+}
+
+model ObdSample {
+  id         String   @id @default(cuid())
+  userId     String
+  deviceId   String
+  recordedAt DateTime
+  createdAt  DateTime @default(now())
+
+  socDisplay  Float?
+  socReal     Float?
+  soh         Float?
+  packVoltage Float?
+  packCurrent Float?
+  cellTempMin Float?
+  cellTempMax Float?
+  hvacPowerKw Float?
+  odometer    Float?
+  speedKmh    Float?
+
+  @@index([userId, recordedAt])
+  @@index([deviceId, recordedAt])
+}
+
 model Trip {
   id                String   @id @default(cuid())
   userId            String
