@@ -20,6 +20,16 @@ const LOOKBACK_SNAPSHOTS = 250;
 // Sotto questa soglia il tratto piatto è solo la risoluzione dell'1% del SOC.
 const FLAT_RUN_PARKED = 3;
 
+// Distanza fra i due snapshot che delimitano il salto. Con il polling adattivo
+// non si superano i 15 minuti: oltre questa soglia c'è stato un buco nella
+// raccolta e i km accumulati non appartengono a un singolo viaggio.
+const MAX_GAP_MS = 60 * 60 * 1000;
+
+// Sotto queste soglie la risoluzione dell'1% del SOC domina il risultato:
+// su 1 km un solo punto percentuale vale 67 kWh/100km.
+const MIN_KM_PER_CONSUMO = 10;
+const MIN_SOC_PER_CONSUMO = 2;
+
 type Snap = {
   createdAt: Date;
   level: number;
@@ -108,6 +118,18 @@ export async function processTrip(data: VehicleData, userId: string) {
 
   if (distanceKm < MIN_TRIP_KM) return;
 
+  // Un buco nella raccolta accumula i km di più viaggi in un solo salto: con
+  // il cron fermo per giorni si otterrebbero "viaggi" di 288 km in 6 giorni,
+  // con la batteria magari più carica alla fine perché nel mezzo si è ricaricato.
+  const gapMs = fine.createdAt.getTime() - precedente.createdAt.getTime();
+  if (gapMs > MAX_GAP_MS) {
+    console.error(
+      `Trip detector — buco di ${Math.round(gapMs / 60000)} min fra gli snapshot, ` +
+        `i ${distanceKm} km non sono attribuibili a un singolo viaggio`
+    );
+    return;
+  }
+
   // Il salto viene osservato una volta sola, ma un poll ripetuto sugli stessi
   // snapshot creerebbe un duplicato: l'odometro di arrivo lo identifica.
   const giaRegistrato = await prisma.trip.findFirst({
@@ -138,9 +160,23 @@ export async function processTrip(data: VehicleData, userId: string) {
 
   const batteryDrop = partenza.level - fine.level;
 
+  // Batteria più alta all'arrivo che alla partenza: nella finestra è avvenuta
+  // una ricarica, quindi la ricostruzione non descrive un viaggio.
+  if (batteryDrop < 0) {
+    console.error(
+      `Trip detector — batteria salita da ${partenza.level}% a ${fine.level}%, ricostruzione scartata`
+    );
+    return;
+  }
+
   // Derivati dalla capacità impostata: non utilizzabili per stimare la capacità.
   const energyUsedKwh = Math.max(0, (batteryDrop / 100) * capacity);
-  const avgConsumption = distanceKm > 0 ? (energyUsedKwh / distanceKm) * 100 : 0;
+
+  // Su tratte brevi o con ΔSOC minimo il consumo è dominato dall'arrotondamento
+  // dell'1%: meglio nessun valore che un valore inventato. La UI lo omette.
+  const consumoAffidabile =
+    distanceKm >= MIN_KM_PER_CONSUMO && batteryDrop >= MIN_SOC_PER_CONSUMO;
+  const avgConsumption = consumoAffidabile ? (energyUsedKwh / distanceKm) * 100 : null;
 
   // Indipendente dalla capacità impostata: viene dal consumo medio di Volvo.
   const energyFromVolvoKwh = (distanceKm / 100) * data.avgConsumption;

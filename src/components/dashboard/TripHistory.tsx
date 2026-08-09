@@ -12,7 +12,9 @@ interface Trip {
   endBattery: number;
   energyUsedKwh: number;
   energyRegenKwh: number;
-  avgConsumption: number;
+  // Assente sui viaggi troppo brevi, dove l'arrotondamento dell'1% del SOC
+  // renderebbe il valore privo di significato.
+  avgConsumption: number | null;
 }
 
 function formatDate(dateStr: string) {
@@ -122,7 +124,7 @@ export default function TripHistory() {
             </div>
 
             {/* Consumo medio */}
-            {trip.avgConsumption > 0 && (
+            {trip.avgConsumption !== null && trip.avgConsumption > 0 && (
               <div className="flex items-center justify-between border-t border-gray-700/50 pt-3">
                 <span className="text-xs text-gray-500 flex items-center gap-1">
                   <Zap size={11} />
