@@ -33,8 +33,49 @@ export async function GET(request: Request) {
   const sessions = await prisma.userSession.findMany();
   const results = [];
 
+  // Soglie di età minima dell'ultimo snapshot prima di ripollare Volvo.
+  // Il cron esterno gira ogni 2min: qui decidiamo se onorare il poll o saltarlo.
+  const MIN_AGE_MS = {
+    charging: 2 * 60 * 1000,   // ricarica in corso: precisione curva
+    moving: 2 * 60 * 1000,     // guida: precisione trip
+    plugged: 5 * 60 * 1000,    // spina inserita, non carica: aspetta start
+    idleRecent: 5 * 60 * 1000, // fermo da poco
+    idleLong: 15 * 60 * 1000,  // fermo da >30min
+  };
+  const IDLE_LONG_MS = 30 * 60 * 1000;
+  const MIN_MOVE_KM = 0.2;
+
   for (const session of sessions) {
     try {
+      // Adaptive polling: decide se saltare in base allo stato precedente
+      const last2 = await prisma.batterySnapshot.findMany({
+        where: { userId: session.userId, odometer: { not: null } },
+        orderBy: { createdAt: 'desc' },
+        take: 2,
+      });
+      const lastSnap = last2[0];
+      if (lastSnap) {
+        const ageMs = Date.now() - lastSnap.createdAt.getTime();
+        const prevOdo = last2[1]?.odometer ?? null;
+        const wasMoving =
+          prevOdo !== null &&
+          lastSnap.odometer !== null &&
+          lastSnap.odometer - prevOdo >= MIN_MOVE_KM;
+
+        let minAge = MIN_AGE_MS.idleRecent;
+        let mode: keyof typeof MIN_AGE_MS = 'idleRecent';
+        if (lastSnap.isCharging) { minAge = MIN_AGE_MS.charging; mode = 'charging'; }
+        else if (wasMoving) { minAge = MIN_AGE_MS.moving; mode = 'moving'; }
+        else if (lastSnap.isConnected) { minAge = MIN_AGE_MS.plugged; mode = 'plugged'; }
+        else if (ageMs > IDLE_LONG_MS) { minAge = MIN_AGE_MS.idleLong; mode = 'idleLong'; }
+
+        if (ageMs < minAge) {
+          console.log(`Skip poll userId ${session.userId}: mode=${mode}, ageMs=${ageMs}, minAge=${minAge}`);
+          results.push({ userId: session.userId, status: 'skipped', mode });
+          continue;
+        }
+      }
+
       let accessToken = session.accessToken;
 
       if (Date.now() > session.expiresAt * 1000 - 60_000) {
