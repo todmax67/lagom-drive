@@ -18,11 +18,13 @@ export async function GET() {
     const [battery, isDriving, odometer] = await Promise.all([
       getRechargeStatus(session.accessToken, vin).catch(() => null),
       getEngineStatus(session.accessToken, vin).catch(() => false),
-      getOdometer(session.accessToken, vin).catch(() => 0),
+      getOdometer(session.accessToken, vin).catch(() => null),
     ]);
 
     if (battery) {
-      await processSnapshot(battery, userId, odometer as number).catch(err =>
+      // odometer null va salvato come assente, non come 0: il trip detector
+      // filtra i null, mentre uno 0 lo tratterebbe come lettura reale.
+      await processSnapshot(battery, userId, odometer ?? undefined).catch(err =>
         console.error('Errore processSnapshot:', err)
       );
     }

@@ -42,6 +42,23 @@ export async function processTrip(data: VehicleData, userId: string) {
 
   const delta01 = s0.odometer - s1.odometer;
   const delta12 = s2 ? s1.odometer - s2.odometer : null;
+
+  // L'odometro può solo crescere, e non di centinaia di km fra due poll.
+  // Un delta fuori scala significa dato corrotto, non un viaggio: proseguire
+  // creerebbe viaggi fantasma o, peggio, cancellerebbe quello vero più sotto.
+  const MAX_PLAUSIBLE_DELTA_KM = 500;
+  const implausible =
+    delta01 < 0 ||
+    delta01 > MAX_PLAUSIBLE_DELTA_KM ||
+    (delta12 !== null && (delta12 < 0 || delta12 > MAX_PLAUSIBLE_DELTA_KM));
+
+  if (implausible) {
+    console.error(
+      `Trip detector — delta odometrico implausibile (delta01: ${delta01}, delta12: ${delta12}), ciclo saltato`
+    );
+    return;
+  }
+
   const isMoving = delta01 >= MIN_MOVE_KM;
   const wasMoving = delta12 !== null ? delta12 >= MIN_MOVE_KM : false;
 
@@ -76,6 +93,14 @@ export async function processTrip(data: VehicleData, userId: string) {
   const endOdometer = s1.odometer;
   const endedAt = s2?.createdAt ?? s1.createdAt;
   const distanceKm = endOdometer - (openTrip.startOdometer ?? endOdometer);
+
+  // Cancella solo i viaggi davvero troppo brevi. Una distanza negativa non è
+  // un viaggio corto ma un odometro incoerente: in quel caso il viaggio resta
+  // aperto e verrà chiuso al ciclo successivo con dati sani.
+  if (distanceKm < 0 || !Number.isFinite(distanceKm)) {
+    console.error(`Trip detector — distanza incoerente (${distanceKm}), viaggio lasciato aperto`);
+    return;
+  }
 
   if (distanceKm < 0.5) {
     await prisma.trip.delete({ where: { id: openTrip.id } });

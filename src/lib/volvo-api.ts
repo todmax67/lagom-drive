@@ -80,8 +80,16 @@ export async function getRechargeStatus(
     d.chargingType?.value === 'AC' ? 'AC' :
     null;
 
+  // Il livello batteria regge tutta l'app: un fallback a 0 verrebbe salvato
+  // come lettura vera, farebbe crollare il grafico e chiuderebbe le sessioni
+  // di ricarica in corso con endLevel 0 e costo azzerato. Meglio fallire.
+  const level = d.batteryChargeLevel?.value;
+  if (typeof level !== 'number' || !Number.isFinite(level)) {
+    throw new Error(`batteryChargeLevel assente o non numerico per VIN ${vin}`);
+  }
+
   return {
-    level: d.batteryChargeLevel?.value ?? 0,
+    level,
     range: d.electricRange?.value ?? 0,
     isCharging,
     isConnected,
