@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     notes,
   } = body;
 
-  const energyAdded = ((endLevel - startLevel) / 100) * (body.batteryCapacity ?? 69);
+  const energyAdded = ((endLevel - startLevel) / 100) * (body.batteryCapacity ?? 67);
   const totalCost = energyAdded * (costPerKwh ?? 0);
 
   const newSession = await prisma.chargingSession.create({
