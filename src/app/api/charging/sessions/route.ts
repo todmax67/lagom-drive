@@ -39,7 +39,15 @@ export async function POST(request: Request) {
     notes,
   } = body;
 
-  const energyAdded = ((endLevel - startLevel) / 100) * (body.batteryCapacity ?? 67);
+  // La capacità è quella impostata dall'utente, non un default hardcoded né un
+  // valore preso dal body: così preview e salvataggio non possono divergere.
+  const settings = await prisma.settings.upsert({
+    where: { userId },
+    update: {},
+    create: { id: userId, userId },
+  });
+
+  const energyAdded = ((endLevel - startLevel) / 100) * settings.batteryCapacity;
   const totalCost = energyAdded * (costPerKwh ?? 0);
 
   const newSession = await prisma.chargingSession.create({
