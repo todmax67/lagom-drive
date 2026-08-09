@@ -83,10 +83,32 @@ export async function processTrip(data: VehicleData, userId: string) {
   }
 
   const batteryDrop = openTrip.startBattery - data.battery;
+
+  // Derivati dalla capacità impostata: utili da mostrare, ma NON utilizzabili per
+  // stimare la capacità stessa (sarebbe circolare — uscirebbe sempre `capacity`).
   const energyUsedKwh = Math.max(0, (batteryDrop / 100) * capacity);
-  const theoreticalKwh = (distanceKm / 100) * data.avgConsumption;
-  const energyRegenKwh = Math.max(0, theoreticalKwh - energyUsedKwh);
   const avgConsumption = distanceKm > 0 ? (energyUsedKwh / distanceKm) * 100 : 0;
+
+  // Indipendente dalla capacità impostata: viene dal consumo medio di Volvo.
+  const energyFromVolvoKwh = (distanceKm / 100) * data.avgConsumption;
+
+  // NB: non è regen misurato, è lo scarto fra la stima Volvo e quella da SOC.
+  // Il nome resta per compatibilità con la UI esistente.
+  const energyRegenKwh = Math.max(0, energyFromVolvoKwh - energyUsedKwh);
+
+  // Stima della capacità reale incrociando le due fonti:
+  //   capacità = consumo_volvo × distanza ÷ ΔSOC
+  // Su un singolo viaggio è rumorosa (il consumo Volvo è una media di lungo
+  // periodo, non del viaggio), quindi va letta aggregata su molti viaggi.
+  // Viaggi corti o con ΔSOC piccolo amplificano l'errore di arrotondamento
+  // dell'1% del SOC, per questo sono esclusi.
+  const MIN_CALIB_KM = 15;
+  const MIN_CALIB_SOC = 10;
+  const eligible =
+    distanceKm >= MIN_CALIB_KM && batteryDrop >= MIN_CALIB_SOC && data.avgConsumption > 0;
+  const rawCapacity = eligible ? (data.avgConsumption * distanceKm) / batteryDrop : null;
+  const capacityEstimateKwh =
+    rawCapacity !== null && rawCapacity >= 30 && rawCapacity <= 120 ? rawCapacity : null;
 
   await prisma.trip.update({
     where: { id: openTrip.id },
@@ -100,6 +122,8 @@ export async function processTrip(data: VehicleData, userId: string) {
       avgConsumption,
       volvoAvgConsumption: data.avgConsumption,
       volvoTripMeterEnd: data.volvoTripMeterAuto,
+      energyFromVolvoKwh,
+      capacityEstimateKwh,
       isComplete: true,
     },
   });
