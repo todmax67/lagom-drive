@@ -67,7 +67,23 @@ export async function GET(request: Request) {
         if (lastSnap.isCharging) { minAge = MIN_AGE_MS.charging; mode = 'charging'; }
         else if (wasMoving) { minAge = MIN_AGE_MS.moving; mode = 'moving'; }
         else if (lastSnap.isConnected) { minAge = MIN_AGE_MS.plugged; mode = 'plugged'; }
-        else if (ageMs > IDLE_LONG_MS) { minAge = MIN_AGE_MS.idleLong; mode = 'idleLong'; }
+        else if (lastSnap.odometer !== null) {
+          // Quanto è ferma l'auto va misurato sull'odometro, non sull'età
+          // dell'ultimo snapshot: quella resta sempre sotto idleRecent perché
+          // è il polling stesso a tenerla bassa, e idleLong non scatterebbe mai.
+          const lastMove = await prisma.batterySnapshot.findFirst({
+            where: {
+              userId: session.userId,
+              odometer: { not: null, lt: lastSnap.odometer },
+            },
+            orderBy: { createdAt: 'desc' },
+            select: { createdAt: true },
+          });
+          const stationaryMs = lastMove
+            ? Date.now() - lastMove.createdAt.getTime()
+            : Number.POSITIVE_INFINITY;
+          if (stationaryMs > IDLE_LONG_MS) { minAge = MIN_AGE_MS.idleLong; mode = 'idleLong'; }
+        }
 
         if (ageMs < minAge) {
           console.log(`Skip poll userId ${session.userId}: mode=${mode}, ageMs=${ageMs}, minAge=${minAge}`);
@@ -92,7 +108,14 @@ export async function GET(request: Request) {
         });
 
         if (!response.ok) {
-          console.error(`Refresh fallito per userId ${session.userId}`);
+          // Senza il dettaglio non si distingue un refresh token revocato da
+          // credenziali client sbagliate, e senza la riga in results il
+          // fallimento sparirebbe dalla response.
+          const detail = await response.text().catch(() => '');
+          console.error(
+            `Refresh fallito per userId ${session.userId}: HTTP ${response.status} ${detail.slice(0, 300)}`
+          );
+          results.push({ userId: session.userId, status: 'refresh_failed' });
           continue;
         }
 
@@ -109,17 +132,27 @@ export async function GET(request: Request) {
         });
       }
 
-      // Recupera tutti i dati in parallelo
+      // Recupera tutti i dati in parallelo. L'odometro fallisce a null, non a 0:
+      // uno 0 finirebbe in DB indistinguibile da una lettura vera e il trip
+      // detector lo leggerebbe come un salto di decine di migliaia di km.
       const [battery, isDriving, stats, odometer] = await Promise.all([
         getRechargeStatus(accessToken, session.userId),
         getEngineStatus(accessToken, session.userId).catch(() => false),
         getStatistics(accessToken, session.userId).catch(() => null),
-        getOdometer(accessToken, session.userId).catch(() => 0),
+        getOdometer(accessToken, session.userId).catch(() => null),
       ]);
       console.log(`userId: ${session.userId}, isDriving: ${isDriving}, odometer: ${odometer}, battery: ${battery.level}`);
 
       // Processa snapshot ricarica
-      await processSnapshot(battery, session.userId, odometer);
+      await processSnapshot(battery, session.userId, odometer ?? undefined);
+
+      // Senza odometro non si può calcolare nessun delta: saltare è l'unica
+      // opzione corretta, il ciclo successivo riprende con un dato valido.
+      if (odometer === null) {
+        console.log(`Odometro non disponibile per userId ${session.userId}: processTrip saltato`);
+        results.push({ userId: session.userId, status: 'ok', odometer: 'unavailable' });
+        continue;
+      }
 
       // Processa viaggio — usa consumo medio da stats o default 18 kWh/100km
       await processTrip({
@@ -136,11 +169,24 @@ export async function GET(request: Request) {
     }
   }
 
+  // Lo scheduler esterno vede solo lo status HTTP: se restasse 200 anche a
+  // fronte di zero sessioni processate o di un refresh fallito, la raccolta
+  // dati potrebbe fermarsi per mesi senza che nessuno lo noti — è già successo.
+  const failed = results.filter(r => r.status === 'error' || r.status === 'refresh_failed');
+  const healthy = results.length > 0 && failed.length === 0;
+
+  if (!healthy) {
+    console.error(
+      `Cron non sano: ${results.length} sessioni, ${failed.length} fallite`
+    );
+  }
+
   return NextResponse.json({
     processed: results.length,
+    failed: failed.length,
     results,
     timestamp: new Date().toISOString(),
-  });
+  }, { status: healthy ? 200 : 503 });
   } finally {
     await prisma.$disconnect();
   }
