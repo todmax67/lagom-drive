@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { PlusCircle, X, Check } from 'lucide-react';
 
 interface Props {
@@ -10,8 +10,6 @@ interface Props {
 export default function AddChargingSession({ onAdded }: Props) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  // Stessa capacità che userà il server nel salvataggio, così il preview non mente
-  const [capacity, setCapacity] = useState<number | null>(null);
   const [form, setForm] = useState({
     date: new Date().toISOString().split('T')[0],
     startTime: '20:00',
@@ -22,14 +20,6 @@ export default function AddChargingSession({ onAdded }: Props) {
     costPerKwh: '0.25',
     location: 'Casa',
   });
-
-  useEffect(() => {
-    if (!open || capacity !== null) return;
-    fetch('/api/settings')
-      .then(r => r.json())
-      .then(s => setCapacity(s.batteryCapacity))
-      .catch(() => {});
-  }, [open, capacity]);
 
   const handleSave = async () => {
     if (!form.startLevel || !form.endLevel) return;
@@ -172,13 +162,13 @@ export default function AddChargingSession({ onAdded }: Props) {
         </div>
       </div>
 
-      {form.startLevel && form.endLevel && capacity !== null && (
+      {form.startLevel && form.endLevel && (
         <div className="rounded-lg bg-gray-900/60 p-3 text-xs text-gray-400">
           Energia stimata: <span className="text-white">
-            {(((parseInt(form.endLevel) - parseInt(form.startLevel)) / 100) * capacity).toFixed(1)} kWh
+            {(((parseInt(form.endLevel) - parseInt(form.startLevel)) / 100) * 69).toFixed(1)} kWh
           </span>
           {' · '}Costo: <span className="text-emerald-400">
-            €{(((parseInt(form.endLevel) - parseInt(form.startLevel)) / 100) * capacity * parseFloat(form.costPerKwh || '0')).toFixed(2)}
+            €{(((parseInt(form.endLevel) - parseInt(form.startLevel)) / 100) * 69 * parseFloat(form.costPerKwh || '0')).toFixed(2)}
           </span>
         </div>
       )}
