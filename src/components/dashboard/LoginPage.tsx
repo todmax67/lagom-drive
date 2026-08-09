@@ -1,7 +1,7 @@
 import { signIn } from 'next-auth/react';
 import { LogIn } from 'lucide-react';
 
-export default function LoginPage() {
+export default function LoginPage({ notice }: { notice?: string }) {
   return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
       <div className="w-full max-w-md">
@@ -15,6 +15,12 @@ export default function LoginPage() {
         </div>
 
         <div className="rounded-2xl border border-gray-700/50 bg-gray-800/50 p-8 flex flex-col gap-6">
+          {notice && (
+            <p className="rounded-xl border border-amber-500/30 bg-amber-900/20 px-4 py-3 text-sm text-amber-200">
+              {notice}
+            </p>
+          )}
+
           <div>
             <h2 className="text-xl font-medium text-white mb-1">Accedi</h2>
             <p className="text-sm text-gray-400">
