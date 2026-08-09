@@ -5,7 +5,10 @@ generator client {
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  // Connessione diretta (senza pooler) richiesta dalle migration.
+  // Usiamo la variabile creata dall'integrazione Neon-Vercel invece di una
+  // DIRECT_URL da aggiungere a mano: così è già presente ovunque.
+  directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 model BatterySnapshot {
