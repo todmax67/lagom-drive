@@ -1,19 +1,24 @@
 import NextAuth from 'next-auth';
 import type { NextAuthConfig } from 'next-auth';
 
-// Funzione che chiama Volvo per ottenere un nuovo access token
+// Funzione che chiama Volvo per ottenere un nuovo access token.
+// Volvo ID vuole le credenziali in Basic auth, non nel body: è lo stesso
+// schema usato da /api/volvo-token e dal cron di polling.
 async function refreshAccessToken(refreshToken: string) {
   try {
+    const basicAuth = Buffer.from(
+      `${process.env.VOLVO_CLIENT_ID}:${process.env.VOLVO_CLIENT_SECRET}`
+    ).toString('base64');
+
     const response = await fetch('https://volvoid.eu.volvocars.com/as/token.oauth2', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${basicAuth}`,
       },
       body: new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: refreshToken,
-        client_id: process.env.VOLVO_CLIENT_ID!,
-        client_secret: process.env.VOLVO_CLIENT_SECRET!,
       }),
     });
 
@@ -67,6 +72,12 @@ export const config: NextAuthConfig = {
 
   secret: process.env.AUTH_SECRET,
   debug: false, // era true, ora false
+
+  // PWA personale: sessione lunga e rolling, così non si rifà il login di continuo
+  session: {
+    strategy: 'jwt',
+    maxAge: 90 * 24 * 60 * 60,
+  },
 
   callbacks: {
     async jwt({ token, account }) {
@@ -122,9 +133,42 @@ export const config: NextAuthConfig = {
         return token;
       }
 
-      // Token scaduto — lo aggiorniamo
+      // Token scaduto. Attenzione: il cron rinnova gli stessi token e Volvo può
+      // ruotare il refresh_token invalidando il precedente. Se rinnovassimo con
+      // quello dentro il JWT rischieremmo di usarne uno già consumato dal cron,
+      // con conseguente logout. La riga UserSession è la fonte di verità.
+      const vin = token.vin as string | null;
+      const { prisma } = await import('@/lib/prisma');
+      const stored = vin
+        ? await prisma.userSession.findUnique({ where: { userId: vin } }).catch(() => null)
+        : null;
+
+      // Il cron ha già rinnovato di recente: adottiamo i suoi token senza richiamare Volvo
+      if (stored && Date.now() < stored.expiresAt * 1000 - 60_000) {
+        return {
+          ...token,
+          accessToken: stored.accessToken,
+          refreshToken: stored.refreshToken,
+          expiresAt: stored.expiresAt,
+          error: null,
+        };
+      }
+
       console.log('Token scaduto, refreshing...');
-      const refreshed = await refreshAccessToken(token.refreshToken as string);
+      const refreshed = await refreshAccessToken(stored?.refreshToken ?? (token.refreshToken as string));
+
+      // Propaghiamo i token nuovi al cron, altrimenti resterebbe con quelli vecchi
+      if (!refreshed.error && vin) {
+        await prisma.userSession.update({
+          where: { userId: vin },
+          data: {
+            accessToken: refreshed.accessToken!,
+            refreshToken: refreshed.refreshToken!,
+            expiresAt: refreshed.expiresAt,
+            lastSeen: new Date(),
+          },
+        }).catch(err => console.error('Errore sync UserSession:', err));
+      }
 
       return {
         ...token,

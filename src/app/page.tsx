@@ -196,9 +196,16 @@ useEffect(() => {
 }
 
 export default function Home() {
-  const { status } = useSession();
+  const { data: session, status } = useSession();
 
   if (status === 'loading') return <LoadingSpinner fullScreen />;
   if (status === 'unauthenticated') return <LoginPage />;
+
+  // Sessione NextAuth ancora valida ma refresh Volvo fallito: senza questo ramo
+  // la dashboard resterebbe visibile e vuota, senza modo di recuperare.
+  if ((session as any)?.error === 'RefreshTokenError') {
+    return <LoginPage notice="La connessione al tuo Volvo ID è scaduta. Accedi di nuovo per riprendere la sincronizzazione." />;
+  }
+
   return <Dashboard />;
 }
