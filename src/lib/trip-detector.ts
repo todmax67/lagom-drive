@@ -74,7 +74,7 @@ export async function processTrip(data: VehicleData, userId: string) {
   }
 
   const endOdometer = s1.odometer;
-  const endedAt = s1.createdAt;
+  const endedAt = s2?.createdAt ?? s1.createdAt;
   const distanceKm = endOdometer - (openTrip.startOdometer ?? endOdometer);
 
   if (distanceKm < 0.5) {
