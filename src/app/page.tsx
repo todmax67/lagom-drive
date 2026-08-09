@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
 import { Car, TrendingUp, MapPin, LogOut, RefreshCw, Settings, BarChart2, Route } from 'lucide-react';
 import AddChargingSession from '@/components/dashboard/AddChargingSession';
@@ -115,19 +116,22 @@ useEffect(() => {
     <div className="bg-gray-950 min-h-screen text-white font-sans">
       <div className="max-w-7xl mx-auto p-4 md:p-6 lg:p-8">
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
-          <div>
-            <h1 className="text-2xl font-light text-white tracking-tight">
-              Lagom Drive
-            </h1>
-            <p className="text-gray-500 text-sm mt-0.5">
-              {session?.user?.email}
-              {status?.isDriving && (
-                <span className="ml-2 inline-flex items-center gap-1 text-xs text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  In guida
-                </span>
-              )}
-            </p>
+          <div className="flex items-center gap-3">
+            <Image src="/logo.svg" alt="" width={40} height={40} priority className="shrink-0" />
+            <div>
+              <h1 className="text-2xl font-light text-white tracking-tight">
+                Lagom Drive
+              </h1>
+              <p className="text-gray-500 text-sm mt-0.5">
+                {session?.user?.email}
+                {status?.isDriving && (
+                  <span className="ml-2 inline-flex items-center gap-1 text-xs text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    In guida
+                  </span>
+                )}
+              </p>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">

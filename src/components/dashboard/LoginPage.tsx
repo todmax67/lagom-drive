@@ -1,4 +1,5 @@
 import { signIn } from 'next-auth/react';
+import Image from 'next/image';
 import { LogIn } from 'lucide-react';
 
 export default function LoginPage({ notice }: { notice?: string }) {
@@ -6,6 +7,14 @@ export default function LoginPage({ notice }: { notice?: string }) {
     <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
       <div className="w-full max-w-md">
         <div className="text-center mb-10">
+          <Image
+            src="/logo.svg"
+            alt=""
+            width={96}
+            height={96}
+            priority
+            className="mx-auto mb-5"
+          />
           <h1 className="text-4xl font-light text-white tracking-tight mb-2">
             Lagom Drive
           </h1>
