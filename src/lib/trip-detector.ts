@@ -35,6 +35,9 @@ type Snap = {
   level: number;
   odometer: number | null;
   isCharging: boolean;
+  // Serve a distinguere una ricarica da una rigenerazione in discesa: in
+  // entrambi i casi la batteria sale, ma solo nella prima la spina è inserita.
+  isConnected: boolean;
 };
 
 /**
@@ -97,7 +100,7 @@ export async function processTrip(data: VehicleData, userId: string) {
     where: { userId, odometer: { not: null } },
     orderBy: { createdAt: 'desc' },
     take: 2,
-    select: { createdAt: true, level: true, odometer: true, isCharging: true },
+    select: { createdAt: true, level: true, odometer: true, isCharging: true, isConnected: true },
   });
 
   if (ultimi2.length < 2) {
@@ -148,7 +151,7 @@ export async function processTrip(data: VehicleData, userId: string) {
     },
     orderBy: { createdAt: 'desc' },
     take: LOOKBACK_SNAPSHOTS,
-    select: { createdAt: true, level: true, odometer: true, isCharging: true },
+    select: { createdAt: true, level: true, odometer: true, isCharging: true, isConnected: true },
   });
 
   const snaps = finestra.reverse() as Snap[];
@@ -156,17 +159,30 @@ export async function processTrip(data: VehicleData, userId: string) {
 
   // Serve almeno lo snapshot pre-salto per ricostruire: senza, si ripiega su
   // quello che si ha invece di sollevare un errore che il cron inghiottirebbe.
-  const partenza = jumpIdx >= 1 ? snaps[trovaPartenza(snaps, jumpIdx)] : precedente;
+  const partenzaIdx = jumpIdx >= 1 ? trovaPartenza(snaps, jumpIdx) : -1;
+  const partenza = partenzaIdx >= 0 ? snaps[partenzaIdx] : precedente;
 
   const batteryDrop = partenza.level - fine.level;
 
-  // Batteria più alta all'arrivo che alla partenza: nella finestra è avvenuta
-  // una ricarica, quindi la ricostruzione non descrive un viaggio.
+  // Batteria più alta all'arrivo che alla partenza. Due cause opposte:
+  // una ricarica avvenuta nella finestra, che invalida la ricostruzione, oppure
+  // la rigenerazione di un tratto in discesa, che è un viaggio a tutti gli
+  // effetti. A distinguerle basta la spina: in ricarica il veicolo risulta
+  // collegato, in discesa no.
   if (batteryDrop < 0) {
-    console.error(
-      `Trip detector — batteria salita da ${partenza.level}% a ${fine.level}%, ricostruzione scartata`
+    const finestraViaggio = partenzaIdx >= 0 ? snaps.slice(partenzaIdx, jumpIdx + 1) : [];
+    const allaSpina = finestraViaggio.some(s => s.isCharging || s.isConnected);
+
+    if (allaSpina) {
+      console.error(
+        `Trip detector — batteria salita da ${partenza.level}% a ${fine.level}% con veicolo collegato: ricarica, non viaggio`
+      );
+      return;
+    }
+
+    console.log(
+      `Trip detector — rigenerazione netta di ${-batteryDrop}% su ${distanceKm} km, viaggio in discesa`
     );
-    return;
   }
 
   // Derivati dalla capacità impostata: non utilizzabili per stimare la capacità.
@@ -181,8 +197,11 @@ export async function processTrip(data: VehicleData, userId: string) {
   // Indipendente dalla capacità impostata: viene dal consumo medio di Volvo.
   const energyFromVolvoKwh = (distanceKm / 100) * data.avgConsumption;
 
-  // Non è regen misurato, è lo scarto fra le due stime.
-  const energyRegenKwh = Math.max(0, energyFromVolvoKwh - energyUsedKwh);
+  // Rigenerazione realmente misurata: i kWh che la batteria ha guadagnato nel
+  // viaggio. Dal solo SOC è osservabile unicamente quando il saldo è positivo,
+  // cioè in discesa; negli altri casi il recupero c'è ma resta nascosto dentro
+  // il consumo netto, e inventare un numero sarebbe peggio che non darne.
+  const energyRegenKwh = batteryDrop < 0 ? (-batteryDrop / 100) * capacity : null;
 
   const MIN_CALIB_KM = 15;
   const MIN_CALIB_SOC = 10;
