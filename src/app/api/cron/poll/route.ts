@@ -169,24 +169,49 @@ export async function GET(request: Request) {
     }
   }
 
-  // Lo scheduler esterno vede solo lo status HTTP: se restasse 200 anche a
-  // fronte di zero sessioni processate o di un refresh fallito, la raccolta
-  // dati potrebbe fermarsi per mesi senza che nessuno lo noti — è già successo.
+  // Lo scheduler esterno vede solo lo status HTTP, e va avvisato quando la
+  // raccolta si ferma: senza, può restare rotta per mesi senza che nessuno se
+  // ne accorga. Ma va avvisato con parsimonia, perché dopo qualche fallimento
+  // consecutivo disabilita il job da solo: rispondere 503 a ogni intoppo
+  // transitorio dell'API Volvo trasforma il monitoraggio nella causa del
+  // guasto. È già successo.
+  //
+  // Il segnale giusto non è "questo poll è fallito" ma "non si raccolgono più
+  // dati da troppo tempo": un errore isolato passa, un guasto persistente no.
   const failed = results.filter(r => r.status === 'error' || r.status === 'refresh_failed');
-  const healthy = results.length > 0 && failed.length === 0;
 
-  if (!healthy) {
+  const ultimoSnapshot = await prisma.batterySnapshot.findFirst({
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true },
+  });
+  const fermoDaMin = ultimoSnapshot
+    ? Math.round((Date.now() - ultimoSnapshot.createdAt.getTime()) / 60000)
+    : Infinity;
+
+  // La soglia deve stare sopra l'intervallo più lungo del polling adattivo,
+  // altrimenti un'auto ferma da giorni verrebbe scambiata per un guasto.
+  const RACCOLTA_FERMA_MIN = 45;
+
+  // Nessuna sessione da processare è un problema di configurazione, non un
+  // intoppo: lì l'allarme è immediato, perché non si risolve da sé.
+  const nessunaSessione = results.length === 0;
+  const guastoPersistente = failed.length > 0 && fermoDaMin > RACCOLTA_FERMA_MIN;
+  const daSegnalare = nessunaSessione || guastoPersistente;
+
+  if (failed.length > 0) {
     console.error(
-      `Cron non sano: ${results.length} sessioni, ${failed.length} fallite`
+      `Cron: ${failed.length} sessioni fallite su ${results.length}, ` +
+        `ultimo dato ${fermoDaMin} min fa, allarme=${daSegnalare}`
     );
   }
 
   return NextResponse.json({
     processed: results.length,
     failed: failed.length,
+    lastDataMinutesAgo: fermoDaMin === Infinity ? null : fermoDaMin,
     results,
     timestamp: new Date().toISOString(),
-  }, { status: healthy ? 200 : 503 });
+  }, { status: daSegnalare ? 503 : 200 });
   } finally {
     await prisma.$disconnect();
   }
