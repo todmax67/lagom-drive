@@ -16,9 +16,15 @@ const MAX_PLAUSIBLE_DELTA_KM = 500;
 const MAX_LOOKBACK_MS = 6 * 60 * 60 * 1000;
 const LOOKBACK_SNAPSHOTS = 250;
 
-// Snapshot consecutivi a batteria identica oltre i quali si assume veicolo fermo.
-// Sotto questa soglia il tratto piatto è solo la risoluzione dell'1% del SOC.
-const FLAT_RUN_PARKED = 3;
+// Durata di un tratto a batteria identica oltre la quale si assume veicolo fermo.
+// Va misurata in minuti e non in numero di snapshot: con il polling adattivo tre
+// campioni valgono 6 minuti o 45 a seconda del regime. In marcia un punto
+// percentuale se ne va in pochi minuti, quindi un plateau così lungo è una sosta.
+const SOSTA_MS = 20 * 60 * 1000;
+
+// Intervallo massimo fra due snapshot perché la finestra sia considerata
+// continua. Oltre, qualcosa può essere accaduto senza lasciare traccia.
+const MAX_INTERVALLO_OSSERVABILE_MS = 25 * 60 * 1000;
 
 // Distanza fra i due snapshot che delimitano il salto. Con il polling adattivo
 // non si superano i 15 minuti: oltre questa soglia c'è stato un buco nella
@@ -64,19 +70,18 @@ function trovaPartenza(snaps: Snap[], jumpIdx: number): number {
   }
 
   // Nella finestra la batteria cala guidando e resta piatta da fermi: la
-  // partenza è dove inizia il calo, quindi si scartano i tratti piatti iniziali
-  // abbastanza lunghi da indicare una sosta.
+  // partenza è la fine dell'ULTIMA sosta. Vanno quindi scorsi tutti i tratti
+  // piatti, non solo i primi: fermarsi al primo plateau corto lascerebbe dentro
+  // al viaggio le soste successive, e con l'auto parcheggiata di notte la
+  // batteria cala a scatti irregolari, alternando tratti brevi e lunghi.
   let partenza = inizio;
-  while (partenza < jumpIdx - 1) {
-    let run = 1;
-    while (
-      partenza + run < jumpIdx &&
-      snaps[partenza + run].level === snaps[partenza].level
-    ) {
-      run++;
-    }
-    if (run >= FLAT_RUN_PARKED) partenza += run - 1;
-    else break;
+  let i = inizio;
+  while (i < jumpIdx) {
+    let j = i;
+    while (j + 1 < jumpIdx && snaps[j + 1].level === snaps[i].level) j++;
+    const durataMs = snaps[j].createdAt.getTime() - snaps[i].createdAt.getTime();
+    if (durataMs >= SOSTA_MS) partenza = j;
+    i = j + 1;
   }
 
   return partenza;
@@ -156,38 +161,87 @@ export async function processTrip(data: VehicleData, userId: string) {
 
   // Serve almeno lo snapshot pre-salto per ricostruire: senza, si ripiega su
   // quello che si ha invece di sollevare un errore che il cron inghiottirebbe.
-  const partenza = jumpIdx >= 1 ? snaps[trovaPartenza(snaps, jumpIdx)] : precedente;
+  const partenzaIdx = jumpIdx >= 1 ? trovaPartenza(snaps, jumpIdx) : -1;
+  const partenza = partenzaIdx >= 0 ? snaps[partenzaIdx] : precedente;
 
   const batteryDrop = partenza.level - fine.level;
 
-  // Batteria più alta all'arrivo che alla partenza: nella finestra è avvenuta
-  // una ricarica, quindi la ricostruzione non descrive un viaggio.
-  if (batteryDrop < 0) {
-    console.error(
-      `Trip detector — batteria salita da ${partenza.level}% a ${fine.level}%, ricostruzione scartata`
+  // Lo stato della spina va riletto senza il filtro sull'odometro: uno snapshot
+  // con odometro nullo è escluso dalla ricostruzione ma porta comunque la prova
+  // di una ricarica, e scartarlo significherebbe cercare quella prova proprio
+  // dove è stata cancellata.
+  const finestraStato = await prisma.batterySnapshot.findMany({
+    where: { userId, createdAt: { gte: partenza.createdAt, lte: fine.createdAt } },
+    orderBy: { createdAt: 'asc' },
+    select: { createdAt: true, isCharging: true },
+  });
+
+  const ricaricaOsservata = finestraStato.some(s => s.isCharging);
+
+  // Una ricarica dentro un buco della raccolta non lascia tracce, e la batteria
+  // più carica all'arrivo verrebbe scambiata per rigenerazione. Non si può
+  // dedurre l'assenza di ricarica dall'assenza di prove: serve che la finestra
+  // sia continua, cioè che una ricarica sarebbe stata osservabile.
+  let intervalloMax = 0;
+  for (let k = 1; k < finestraStato.length; k++) {
+    intervalloMax = Math.max(
+      intervalloMax,
+      finestraStato[k].createdAt.getTime() - finestraStato[k - 1].createdAt.getTime()
     );
-    return;
+  }
+  const finestraContinua =
+    finestraStato.length >= 2 && intervalloMax <= MAX_INTERVALLO_OSSERVABILE_MS;
+
+  // Il salto odometrico è un fatto: quei km sono stati percorsi, e il viaggio va
+  // registrato comunque. La lettura della batteria è invece un'inferenza, che
+  // una ricarica in finestra o un buco nella raccolta possono contaminare.
+  // Quando non è attendibile si salvano distanza e orari e si lasciano nulli i
+  // campi energetici, invece di scartare il viaggio o di inventarne i numeri.
+  const batteriaAttendibile = finestraContinua && !ricaricaOsservata && !fine.isCharging;
+
+  if (!batteriaAttendibile) {
+    console.log(
+      `Trip detector — ${distanceKm} km registrati senza dati energetici ` +
+        `(ricaricaOsservata=${ricaricaOsservata}, finestraContinua=${finestraContinua}, ` +
+        `inCaricaAllArrivo=${fine.isCharging})`
+    );
+  } else if (batteryDrop < 0) {
+    console.log(
+      `Trip detector — rigenerazione netta di ${-batteryDrop}% su ${distanceKm} km`
+    );
   }
 
   // Derivati dalla capacità impostata: non utilizzabili per stimare la capacità.
-  const energyUsedKwh = Math.max(0, (batteryDrop / 100) * capacity);
+  const energyUsedKwh = batteriaAttendibile
+    ? Math.max(0, (batteryDrop / 100) * capacity)
+    : null;
 
   // Su tratte brevi o con ΔSOC minimo il consumo è dominato dall'arrotondamento
   // dell'1%: meglio nessun valore che un valore inventato. La UI lo omette.
   const consumoAffidabile =
-    distanceKm >= MIN_KM_PER_CONSUMO && batteryDrop >= MIN_SOC_PER_CONSUMO;
-  const avgConsumption = consumoAffidabile ? (energyUsedKwh / distanceKm) * 100 : null;
+    batteriaAttendibile &&
+    distanceKm >= MIN_KM_PER_CONSUMO &&
+    batteryDrop >= MIN_SOC_PER_CONSUMO;
+  const avgConsumption = consumoAffidabile
+    ? ((batteryDrop / 100) * capacity * 100) / distanceKm
+    : null;
 
-  // Indipendente dalla capacità impostata: viene dal consumo medio di Volvo.
+  // Indipendente dalla capacità impostata e dalla spina: viene da Volvo.
   const energyFromVolvoKwh = (distanceKm / 100) * data.avgConsumption;
 
-  // Non è regen misurato, è lo scarto fra le due stime.
-  const energyRegenKwh = Math.max(0, energyFromVolvoKwh - energyUsedKwh);
+  // Rigenerazione realmente misurata: i kWh guadagnati dalla batteria. Dal solo
+  // SOC è osservabile unicamente a saldo positivo, cioè in discesa; altrimenti
+  // il recupero c'è ma resta nascosto dentro il consumo netto.
+  const energyRegenKwh =
+    batteriaAttendibile && batteryDrop < 0 ? (-batteryDrop / 100) * capacity : null;
 
   const MIN_CALIB_KM = 15;
   const MIN_CALIB_SOC = 10;
   const eligible =
-    distanceKm >= MIN_CALIB_KM && batteryDrop >= MIN_CALIB_SOC && data.avgConsumption > 0;
+    batteriaAttendibile &&
+    distanceKm >= MIN_CALIB_KM &&
+    batteryDrop >= MIN_CALIB_SOC &&
+    data.avgConsumption > 0;
   const rawCapacity = eligible ? (data.avgConsumption * distanceKm) / batteryDrop : null;
   const capacityEstimateKwh =
     rawCapacity !== null && rawCapacity >= 30 && rawCapacity <= 120 ? rawCapacity : null;
@@ -204,7 +258,7 @@ export async function processTrip(data: VehicleData, userId: string) {
       startedAt: partenza.createdAt,
       endedAt: fine.createdAt,
       startBattery: partenza.level,
-      endBattery: fine.level,
+      endBattery: batteriaAttendibile ? fine.level : null,
       startOdometer: precedente.odometer,
       endOdometer: fine.odometer,
       distanceKm,
