@@ -109,8 +109,12 @@ model ObdSample {
   batt12vVoltage Float? // [CEM] Battery voltage
   parasiticMa    Float? // [CEM] Average static low range battery current
 
+  // Un dongle che va in timeout rispedisce il batch: senza questo vincolo ogni
+  // ritentativo duplicherebbe tutti i campioni. Due letture dello stesso
+  // dispositivo nello stesso millisecondo non esistono, il polling OBD non
+  // scende sotto il centinaio di millisecondi.
+  @@unique([deviceId, recordedAt])
   @@index([userId, recordedAt])
-  @@index([deviceId, recordedAt])
 }
 
 model Trip {
