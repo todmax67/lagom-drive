@@ -26,7 +26,10 @@ export type DefinizionePid = {
   converti: (dati: number[]) => number | null;
 };
 
-export const PID_SUPPORTATI: DefinizionePid[] = [
+// Divisi per cadenza: carica e velocità cambiano di continuo, tensione della
+// 12V e temperatura esterna si muovono su scala di minuti. Interrogarle a ogni
+// giro sottrae solo tempo alle due che contano.
+export const PID_VELOCI: DefinizionePid[] = [
   {
     comando: '015B',
     campo: 'socDisplay',
@@ -42,6 +45,9 @@ export const PID_SUPPORTATI: DefinizionePid[] = [
     unita: 'km/h',
     converti: d => (d.length >= 1 ? d[0] : null),
   },
+];
+
+export const PID_LENTI: DefinizionePid[] = [
   {
     comando: '0142',
     campo: 'batt12vVoltage',
@@ -90,16 +96,22 @@ export function estraiDati(risposta: string, comando: string): number[] | null {
   return byte.slice(2);
 }
 
-export type Campione = Partial<Record<CampoObd, number>> & { recordedAt: string };
+export const PID_SUPPORTATI = [...PID_VELOCI, ...PID_LENTI];
+
+export type Campione = Partial<Record<CampoObd, number>> & {
+  recordedAt: string;
+  didRaw?: Record<string, string>;
+};
 
 /** Legge in sequenza tutti i PID: l'ELM327 non accetta richieste sovrapposte. */
 export async function leggiCampione(
-  invia: (comando: string) => Promise<string>
+  invia: (comando: string) => Promise<string>,
+  includiLenti = false
 ): Promise<{ campione: Campione; errori: string[] }> {
   const campione: Campione = { recordedAt: new Date().toISOString() };
   const errori: string[] = [];
 
-  for (const pid of PID_SUPPORTATI) {
+  for (const pid of includiLenti ? PID_SUPPORTATI : PID_VELOCI) {
     try {
       const risposta = await invia(pid.comando);
       const dati = estraiDati(risposta, pid.comando);
