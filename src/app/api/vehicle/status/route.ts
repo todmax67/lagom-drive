@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { processSnapshot } from '@/lib/charging-detector';
+import { processTrip } from '@/lib/trip-detector';
 import { prisma } from '@/lib/prisma';
 import { getVin, getRechargeStatus, getEngineStatus, getOdometer } from '@/lib/volvo-api';
 
@@ -24,9 +25,24 @@ export async function GET() {
     if (battery) {
       // odometer null va salvato come assente, non come 0: il trip detector
       // filtra i null, mentre uno 0 lo tratterebbe come lettura reale.
-      await processSnapshot(battery, userId, odometer ?? undefined).catch(err =>
+      await processSnapshot(battery, userId, odometer ?? undefined, 'dashboard').catch(err =>
         console.error('Errore processSnapshot:', err)
       );
+
+      // Chi scrive uno snapshot deve anche elaborare i viaggi. Questa rotta
+      // scriveva soltanto, e quello snapshot azzerava il contatore di età su
+      // cui si regola il polling adattivo: il cron poi saltava il giro, e il
+      // salto odometrico non veniva elaborato da nessuno. Un viaggio da 9 km
+      // è andato perso esattamente così, mentre la dashboard era aperta.
+      //
+      // avgConsumption resta null: le statistiche Volvo arrivano da un'altra
+      // rotta e chiamarle qui costerebbe una richiesta in più a ogni apertura.
+      if (odometer !== null && odometer !== undefined) {
+        await processTrip(
+          { battery: battery.level, odometer, avgConsumption: null, volvoTripMeterAuto: null },
+          userId
+        ).catch(err => console.error('Errore processTrip:', err));
+      }
     }
 
     // Aggiorna i token nella UserSession ad ogni polling

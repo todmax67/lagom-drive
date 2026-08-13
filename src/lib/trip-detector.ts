@@ -3,7 +3,9 @@ import { prisma } from '@/lib/prisma';
 interface VehicleData {
   battery: number;
   odometer: number;
-  avgConsumption: number;
+  // Null quando le statistiche Volvo non sono disponibili: meglio lasciare
+  // vuoti i campi che ne dipendono che calcolarli su un valore inventato.
+  avgConsumption: number | null;
   volvoTripMeterAuto: number | null;
 }
 
@@ -249,7 +251,8 @@ export async function processTrip(data: VehicleData, userId: string) {
     : null;
 
   // Indipendente dalla capacità impostata e dalla spina: viene da Volvo.
-  const energyFromVolvoKwh = (distanceKm / 100) * data.avgConsumption;
+  const energyFromVolvoKwh =
+    data.avgConsumption !== null ? (distanceKm / 100) * data.avgConsumption : null;
 
   // Rigenerazione realmente misurata: i kWh guadagnati dalla batteria. Dal solo
   // SOC è osservabile unicamente a saldo positivo, cioè in discesa; altrimenti
@@ -263,8 +266,12 @@ export async function processTrip(data: VehicleData, userId: string) {
     batteriaAttendibile &&
     distanceKm >= MIN_CALIB_KM &&
     batteryDrop >= MIN_CALIB_SOC &&
+    data.avgConsumption !== null &&
     data.avgConsumption > 0;
-  const rawCapacity = eligible ? (data.avgConsumption * distanceKm) / batteryDrop : null;
+  const rawCapacity =
+    eligible && data.avgConsumption !== null
+      ? (data.avgConsumption * distanceKm) / batteryDrop
+      : null;
   const capacityEstimateKwh =
     rawCapacity !== null && rawCapacity >= 30 && rawCapacity <= 120 ? rawCapacity : null;
 

@@ -4,7 +4,10 @@ import type { VehicleStatus } from '@/types/volvo';
 export async function processSnapshot(
   battery: VehicleStatus['battery'],
   userId: string,
-  odometer?: number
+  odometer?: number,
+  // Chi ha scritto il campione. Senza questa traccia, capire perché un viaggio
+  // non è stato rilevato costringe a dedurlo dagli intervalli fra gli snapshot.
+  source: 'cron' | 'dashboard' = 'cron'
 ) {
   await prisma.batterySnapshot.create({
     data: {
@@ -14,7 +17,8 @@ export async function processSnapshot(
       isCharging: battery.isCharging,
       isConnected: battery.isConnected,
       chargingType: battery.chargingType ?? null,
-      odometer: odometer ?? null, 
+      odometer: odometer ?? null,
+      source,
     },
   });
 
