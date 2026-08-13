@@ -36,6 +36,11 @@ const MAX_GAP_MS = 60 * 60 * 1000;
 const MIN_KM_PER_CONSUMO = 10;
 const MIN_SOC_PER_CONSUMO = 2;
 
+// Quanti campioni recenti esaminare per trovare l'ultimo odometro diverso.
+// Deve coprire le scritture ripetute a pochi secondi di distanza, e dà anche
+// un piccolo margine per riprendere un salto sfuggito al poll precedente.
+const RECENTI_DA_ESAMINARE = 12;
+
 type Snap = {
   createdAt: Date;
   level: number;
@@ -96,22 +101,39 @@ export async function processTrip(data: VehicleData, userId: string) {
 
   const capacity = settings.batteryCapacity;
 
-  // I salti sono rari, qualche volta al giorno: il caso comune deve restare a
-  // due righe, e la finestra di lookback si carica solo quando serve davvero.
-  const ultimi2 = await prisma.batterySnapshot.findMany({
+  // Gli snapshot non arrivano solo dal cron: anche /api/vehicle/status ne scrive
+  // uno a ogni apertura della dashboard. Due scritture a pochi secondi l'una
+  // dall'altra condividono lo stesso odometro, e confrontare semplicemente "gli
+  // ultimi due" darebbe delta zero proprio nel poll che ha appena visto il
+  // salto: il viaggio sparirebbe. Vanno quindi collassate le letture ripetute.
+  const recenti = await prisma.batterySnapshot.findMany({
     where: { userId, odometer: { not: null } },
     orderBy: { createdAt: 'desc' },
-    take: 2,
+    take: RECENTI_DA_ESAMINARE,
     select: { createdAt: true, level: true, odometer: true, isCharging: true },
   });
 
-  if (ultimi2.length < 2) {
+  if (recenti.length < 2) {
     console.log('Trip detector — non abbastanza snapshot, skip');
     return;
   }
 
-  const fine = ultimi2[0] as Snap;
-  const precedente = ultimi2[1] as Snap;
+  // Il primo campione ad aver mostrato l'odometro attuale è il momento
+  // dell'arrivo; quelli dopo sono ripetizioni dello stesso valore.
+  let idxArrivo = 0;
+  while (
+    idxArrivo + 1 < recenti.length &&
+    recenti[idxArrivo + 1].odometer === recenti[0].odometer
+  ) {
+    idxArrivo++;
+  }
+
+  const fine = recenti[idxArrivo] as Snap;
+  const precedente = recenti[idxArrivo + 1] as Snap | undefined;
+
+  // Tutti i campioni recenti hanno lo stesso odometro: nessun salto osservabile.
+  if (!precedente) return;
+
   const distanceKm = (fine.odometer ?? 0) - (precedente.odometer ?? 0);
 
   if (distanceKm < MIN_MOVE_KM) return;
