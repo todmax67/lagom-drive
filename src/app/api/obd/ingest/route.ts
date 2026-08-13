@@ -8,19 +8,30 @@ const MAX_SKEW_MS = 60 * 60 * 1000;
 
 // I limiti servono a scartare le letture assurde prima che entrino in tabella:
 // un sensore non supportato dalla centralina non risponde con un errore ma con
-// un valore fuori scala, ed è da lì che nasce la spazzatura.
+// un valore fuori scala — molto spesso zero — ed è da lì che nasce la spazzatura.
+//
+// Per questo, dove la grandezza fisica NON può valere zero mentre il sensore
+// funziona, lo zero è escluso dal range: è già successo che un odometro caduto
+// a zero venisse salvato come lettura vera e producesse viaggi fantasma da
+// decine di migliaia di km. Dove invece lo zero è legittimo — auto ferma,
+// corrente a riposo, 0 °C — il range lo ammette.
 const RANGES: Record<string, [number, number]> = {
   socDisplay: [0, 100],
   socReal: [0, 100],
-  soh: [0, 100],
-  packVoltage: [0, 1000],
-  // Negativa in rigenerazione e in ricarica, positiva in scarica
+  // Sotto il 20% di salute la vettura non sarebbe marciante; sopra il 100 può
+  // stare un pacco nuovo che si dichiara oltre il nominale
+  soh: [20, 110],
+  // Un pacco a 400 V che legge zero significa contattori aperti o nessun dato
+  packVoltage: [100, 1000],
+  cellVoltageSum: [100, 1000],
+  // Negativa in rigenerazione e in ricarica, positiva in scarica: lo zero a
+  // riposo è una lettura legittima
   packCurrent: [-1000, 1000],
   packPowerKw: [-300, 300],
-  cellVoltageSum: [0, 1000],
   coolantInletC: [-40, 90],
   coolantOutletC: [-40, 90],
-  odometer: [0, 2_000_000],
+  // Zero escluso: è il valore con cui un odometro non disponibile si presenta
+  odometer: [1, 2_000_000],
   speedKmh: [0, 400],
   // In Watt, come la sorgente HVCH-CCM: convertire qui aprirebbe la porta a
   // errori di scala silenziosi
@@ -28,7 +39,8 @@ const RANGES: Record<string, [number, number]> = {
   interiorC: [-40, 90],
   ambientC: [-50, 70],
   batt12vSoc: [0, 100],
-  batt12vVoltage: [0, 20],
+  // Una 12V che legge zero non è scarica, è un sensore che non risponde
+  batt12vVoltage: [6, 20],
   parasiticMa: [-100_000, 100_000],
 };
 
@@ -97,13 +109,24 @@ export async function POST(request: Request) {
     rows.push({ userId: device.userId, deviceId: device.id, recordedAt, ...metrics });
   }
 
+  // skipDuplicates rende il rinvio innocuo: un dongle che va in timeout dopo
+  // aver scritto rispedisce lo stesso batch, e senza questo lo duplicherebbe.
+  let inseriti = 0;
   if (rows.length > 0) {
-    await prisma.obdSample.createMany({ data: rows });
+    const esito = await prisma.obdSample.createMany({ data: rows, skipDuplicates: true });
+    inseriti = esito.count;
   }
+
   await prisma.obdDevice.update({
     where: { id: device.id },
     data: { lastSeen: new Date() },
   });
 
-  return NextResponse.json({ accepted: rows.length, rejected });
+  // I tre numeri vanno distinti: un campione già presente non è un errore, ma
+  // se "duplicati" resta alto significa che il dongle sta rinviando in continuo.
+  return NextResponse.json({
+    accepted: inseriti,
+    duplicates: rows.length - inseriti,
+    rejected,
+  });
 }
