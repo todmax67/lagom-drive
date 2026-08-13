@@ -80,16 +80,34 @@ model ObdSample {
   recordedAt DateTime
   createdAt  DateTime @default(now())
 
-  socDisplay  Float?
-  socReal     Float?
-  soh         Float?
-  packVoltage Float?
-  packCurrent Float?
-  cellTempMin Float?
-  cellTempMax Float?
-  hvacPowerKw Float?
-  odometer    Float?
-  speedKmh    Float?
+  // I campi rispecchiano i sensori realmente esposti dalla XC40 MY2023, letti
+  // dalla lista di Car Scanner. Le temperature delle singole celle non ci sono:
+  // il BECM espone solo il liquido di raffreddamento in ingresso e uscita.
+
+  // Batteria di trazione (BECM)
+  socDisplay     Float? // SOC del cruscotto, intero
+  socReal        Float? // [BECM] HV Battery SoC, con i decimali
+  soh            Float? // [BECM] HV Battery SoH
+  packVoltage    Float? // [BECM] HV Battery voltage
+  packCurrent    Float? // [BECM] HV Battery current
+  packPowerKw    Float? // [BECM] Actual power, già in kW dalla centralina
+  cellVoltageSum Float? // [BECM] HV Battery cell voltages summ
+  coolantInletC  Float? // [BECM] HV Battery coolant inlet temperature
+  coolantOutletC Float? // [BECM] HV Battery coolant outlet temperature
+
+  // Veicolo
+  odometer Float? // [DIM] Odometer
+  speedKmh Float? // [IEM] Velocità veicolo
+
+  // Clima: è la voce che spiega i consumi a veicolo fermo
+  hvacPowerW Float? // [CCM] Current consumption HVCH-CCM, in Watt come la sorgente
+  interiorC  Float? // [CCM] Interior temperature
+  ambientC   Float? // temperatura esterna
+
+  // Batteria 12V: serve a misurare quanto pesa il dongle stesso quando resta inserito
+  batt12vSoc     Float? // [CEM] Battery SoC
+  batt12vVoltage Float? // [CEM] Battery voltage
+  parasiticMa    Float? // [CEM] Average static low range battery current
 
   @@index([userId, recordedAt])
   @@index([deviceId, recordedAt])

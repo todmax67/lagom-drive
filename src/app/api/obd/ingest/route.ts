@@ -6,17 +6,30 @@ const MAX_BATCH = 500;
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_SKEW_MS = 60 * 60 * 1000;
 
+// I limiti servono a scartare le letture assurde prima che entrino in tabella:
+// un sensore non supportato dalla centralina non risponde con un errore ma con
+// un valore fuori scala, ed è da lì che nasce la spazzatura.
 const RANGES: Record<string, [number, number]> = {
   socDisplay: [0, 100],
   socReal: [0, 100],
   soh: [0, 100],
   packVoltage: [0, 1000],
+  // Negativa in rigenerazione e in ricarica, positiva in scarica
   packCurrent: [-1000, 1000],
-  cellTempMin: [-50, 100],
-  cellTempMax: [-50, 100],
-  hvacPowerKw: [-20, 20],
+  packPowerKw: [-300, 300],
+  cellVoltageSum: [0, 1000],
+  coolantInletC: [-40, 90],
+  coolantOutletC: [-40, 90],
   odometer: [0, 2_000_000],
   speedKmh: [0, 400],
+  // In Watt, come la sorgente HVCH-CCM: convertire qui aprirebbe la porta a
+  // errori di scala silenziosi
+  hvacPowerW: [-20_000, 20_000],
+  interiorC: [-40, 90],
+  ambientC: [-50, 70],
+  batt12vSoc: [0, 100],
+  batt12vVoltage: [0, 20],
+  parasiticMa: [-100_000, 100_000],
 };
 
 function readMetric(raw: unknown, field: string): number | null {
