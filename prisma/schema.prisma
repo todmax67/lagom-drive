@@ -106,6 +106,12 @@ model ObdSample {
   interiorC  Float? // [CCM] Interior temperature
   ambientC   Float? // temperatura esterna
 
+  // Letture grezze dei DID Volvo, come mappa DID -> payload esadecimale.
+  // Le formule di conversione vanno confermate osservando come i valori si
+  // muovono nel tempo: finché non lo sono, il dato si conserva così com'è
+  // invece di essere interpretato. Misurare e interpretare restano separati.
+  didRaw Json?
+
   // Batteria 12V: serve a misurare quanto pesa il dongle stesso quando resta inserito
   batt12vSoc     Float? // [CEM] Battery SoC
   batt12vVoltage Float? // [CEM] Battery voltage

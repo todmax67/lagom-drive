@@ -3,11 +3,17 @@
 import { useState, useRef, useEffect, useCallback, useSyncExternalStore } from 'react';
 import { Play, Square, KeyRound, Upload } from 'lucide-react';
 import { PID_SUPPORTATI, leggiCampione, type Campione } from '@/lib/obd-pids';
+import { leggiDidVolvo } from '@/lib/volvo-uds';
 import type { Canale } from '@/lib/elm327';
 
 const CHIAVE_TOKEN = 'lagom-obd-token';
 const INTERVALLO_MS = 2000;
 const CAMPIONI_PER_INVIO = 15;
+
+// Ogni quanti giri leggere anche i PID lenti e i DID Volvo. La preparazione
+// dell'header Volvo costa sei comandi: pagarla a ogni giro toglierebbe tempo
+// alle due grandezze che cambiano di continuo, carica e velocità.
+const GIRI_PER_LETTURA_LENTA = 15;
 
 // Il token vive in localStorage e non in React: useSyncExternalStore è il modo
 // previsto per leggerlo senza disallineare l'idratazione, e senza impostare
@@ -100,10 +106,24 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
       wakeLockRef.current = await navigator.wakeLock?.request('screen');
     } catch { /* non disponibile: si continua lo stesso */ }
 
+    let giro = 0;
     const ciclo = async () => {
       while (attivoRef.current) {
         const inizio = Date.now();
-        const { campione, errori } = await leggiCampione(canale.invia);
+        const lento = giro % GIRI_PER_LETTURA_LENTA === 0;
+        giro++;
+
+        const { campione, errori } = await leggiCampione(canale.invia, lento);
+
+        if (lento) {
+          try {
+            const { campi, grezzi } = await leggiDidVolvo(canale.invia);
+            Object.assign(campione, campi);
+            if (Object.keys(grezzi).length) campione.didRaw = grezzi;
+          } catch (err) {
+            errori.push(`DID Volvo: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
 
         const conValori = Object.keys(campione).length > 1;
         if (conValori) {

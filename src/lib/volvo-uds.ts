@@ -157,3 +157,84 @@ export async function sondaCentralina(
 
   return letture;
 }
+
+/**
+ * I DID da registrare a ogni sessione, sulla batteria di trazione.
+ *
+ * `campo` è valorizzato solo dove la formula è CONFERMATA da un riscontro
+ * indipendente: la tensione di pacco è scesa di 5.0 V mentre la carica calava
+ * di 4.3 punti, che su 96 celle in serie fa 52 mV a cella — la curva di scarica
+ * agli ioni di litio si comporta esattamente così.
+ *
+ * Dove `campo` manca il payload finisce grezzo in didRaw. Il candidato SoH è
+ * rimasto identico per tre ore e mezza attraverso un viaggio, ma immobile lo
+ * sarebbe anche una costante di capacità: si registra e si guarda nel tempo.
+ */
+export const DID_DA_REGISTRARE: {
+  did: string;
+  etichetta: string;
+  campo?: 'packVoltage' | 'coolantInletC' | 'coolantOutletC' | 'batt12vVoltage';
+  converti?: (b: number[]) => number | null;
+}[] = [
+  {
+    did: '224857',
+    etichetta: 'Tensione pacco',
+    campo: 'packVoltage',
+    converti: b => (b.length >= 2 ? (b[0] * 256 + b[1]) / 10 : null),
+  },
+  {
+    did: '224804',
+    etichetta: 'Liquido ingresso',
+    campo: 'coolantInletC',
+    converti: b => (b.length >= 2 ? (b[0] * 256 + b[1]) / 10 : null),
+  },
+  {
+    did: '224990',
+    etichetta: 'Liquido uscita',
+    campo: 'coolantOutletC',
+    converti: b => (b.length >= 2 ? (b[0] * 256 + b[1]) / 10 : null),
+  },
+  {
+    did: '22F442',
+    etichetta: 'Batteria 12V',
+    campo: 'batt12vVoltage',
+    converti: b => (b.length >= 2 ? (b[0] * 256 + b[1]) / 1000 : null),
+  },
+  // Da qui in poi solo grezzi: la scala non è confermata
+  { did: '22496D', etichetta: 'Candidato SoH' },
+  { did: '224802', etichetta: 'Candidato corrente' },
+  { did: '224858', etichetta: 'Somma tensioni celle' },
+  { did: '224A58', etichetta: 'Piccolo valore con segno' },
+];
+
+export const CENTRALINA_BATTERIA = CENTRALINE[0];
+
+/** Legge i DID Volvo e riporta sia i campi confermati sia i payload grezzi. */
+export async function leggiDidVolvo(invia: (c: string) => Promise<string>): Promise<{
+  campi: Record<string, number>;
+  grezzi: Record<string, string>;
+}> {
+  const campi: Record<string, number> = {};
+  const grezzi: Record<string, string> = {};
+
+  for (const cmd of sequenzaPreparazione(CENTRALINA_BATTERIA.ecu)) {
+    await invia(cmd).catch(() => {});
+  }
+
+  try {
+    for (const v of DID_DA_REGISTRARE) {
+      const risposta = await invia(v.did).catch(() => '');
+      const payload = estraiPayload(risposta, v.did);
+      if (!payload) continue;
+      grezzi[v.did] = payload.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
+      if (v.campo && v.converti) {
+        const valore = v.converti(payload);
+        if (valore !== null && Number.isFinite(valore)) campi[v.campo] = valore;
+      }
+    }
+  } finally {
+    for (const cmd of SEQUENZA_RIPRISTINO) await invia(cmd).catch(() => {});
+  }
+
+  return { campi, grezzi };
+}

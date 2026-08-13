@@ -101,12 +101,25 @@ export async function POST(request: Request) {
       Object.keys(RANGES).map(field => [field, readMetric(s[field], field)])
     );
 
-    if (Object.values(metrics).every(v => v === null)) {
+    if (Object.values(metrics).every(v => v === null) && !s.didRaw) {
       rejected++;
       continue;
     }
 
-    rows.push({ userId: device.userId, deviceId: device.id, recordedAt, ...metrics });
+    // I payload grezzi dei DID Volvo: mappa DID -> esadecimale. Si accettano
+    // solo chiavi e valori esadecimali di lunghezza ragionevole, così un client
+    // difettoso non può riempire la colonna di testo arbitrario.
+    let didRaw: Record<string, string> | undefined;
+    const grezzi = s.didRaw;
+    if (grezzi && typeof grezzi === 'object' && !Array.isArray(grezzi)) {
+      const voci = Object.entries(grezzi as Record<string, unknown>)
+        .filter(([k, v]) =>
+          /^[0-9A-Fa-f]{4,8}$/.test(k) && typeof v === 'string' && /^[0-9A-Fa-f]{2,64}$/.test(v))
+        .slice(0, 40);
+      if (voci.length) didRaw = Object.fromEntries(voci) as Record<string, string>;
+    }
+
+    rows.push({ userId: device.userId, deviceId: device.id, recordedAt, ...metrics, didRaw });
   }
 
   // skipDuplicates rende il rinvio innocuo: un dongle che va in timeout dopo
