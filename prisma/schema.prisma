@@ -20,6 +20,8 @@ model BatterySnapshot {
   isCharging   Boolean
   isConnected  Boolean
   chargingType String?
+  // 'cron' oppure 'dashboard': serve a sapere chi ha scritto il campione
+  source       String   @default("cron")
   odometer     Int?    
 
   @@index([userId, createdAt])

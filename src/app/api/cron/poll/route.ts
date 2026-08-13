@@ -144,7 +144,7 @@ export async function GET(request: Request) {
       console.log(`userId: ${session.userId}, isDriving: ${isDriving}, odometer: ${odometer}, battery: ${battery.level}`);
 
       // Processa snapshot ricarica
-      await processSnapshot(battery, session.userId, odometer ?? undefined);
+      await processSnapshot(battery, session.userId, odometer ?? undefined, 'cron');
 
       // Senza odometro non si può calcolare nessun delta: saltare è l'unica
       // opzione corretta, il ciclo successivo riprende con un dato valido.
@@ -154,11 +154,12 @@ export async function GET(request: Request) {
         continue;
       }
 
-      // Processa viaggio — usa consumo medio da stats o default 18 kWh/100km
+      // Processa viaggio. Se le statistiche mancano si passa null: i campi che
+      // ne dipendono restano vuoti invece di poggiare su un valore inventato.
       await processTrip({
         battery: battery.level,
         odometer,
-        avgConsumption: stats?.avgConsumptionKwh ?? 18,
+        avgConsumption: stats?.avgConsumptionKwh ?? null,
         volvoTripMeterAuto: stats?.tripMeter2Km ?? null,
       }, session.userId).catch(err => console.error('Errore processTrip:', err));
 
