@@ -76,6 +76,12 @@ export default function ObdPage() {
             <h1 className="text-xl font-light tracking-tight">Console OBD</h1>
             <p className="text-gray-500 text-sm">Collegamento diretto al dongle via Bluetooth</p>
           </div>
+          <Link
+            href="/obd/analisi"
+            className="ml-auto text-xs text-blue-400 hover:text-blue-300 border border-blue-500/30 rounded-xl px-3 py-2"
+          >
+            Confronto
+          </Link>
         </header>
 
         {!supportato() && (
