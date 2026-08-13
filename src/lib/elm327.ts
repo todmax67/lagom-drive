@@ -106,38 +106,51 @@ export async function collega(): Promise<{ canale: Canale; servizi: ServizioScop
   await lettura.startNotifications();
 
   let buffer = '';
-  let risolvi: ((testo: string) => void) | null = null;
   const decoder = new TextDecoder();
+
+  // Il numero di generazione distingue l'attesa corrente da quelle scadute: una
+  // risposta arrivata in ritardo porta dati del comando precedente, e senza
+  // questo controllo risolverebbe la promessa del comando successivo. Con una
+  // sonda che manda diciassette richieste in fila, un solo timeout basterebbe
+  // a disallineare tutto il resto e ad attribuire ogni valore al DID sbagliato.
+  let generazione = 0;
+  let attesa: { gen: number; risolvi: (testo: string) => void } | null = null;
 
   lettura.addEventListener('characteristicvaluechanged', (evento: Event) => {
     const target = evento.target as BluetoothRemoteGATTCharacteristic;
     buffer += decoder.decode(target.value!);
     // La risposta è completa quando arriva il prompt, non dopo un tempo fisso:
     // le letture lente arrivano spezzate in più notifiche.
-    if (buffer.includes(PROMPT) && risolvi) {
+    if (buffer.includes(PROMPT) && attesa) {
       const testo = buffer.slice(0, buffer.indexOf(PROMPT));
       buffer = '';
-      const f = risolvi;
-      risolvi = null;
-      f(testo.trim());
+      const corrente = attesa;
+      attesa = null;
+      corrente.risolvi(testo.trim());
     }
   });
 
   const encoder = new TextEncoder();
 
-  const invia = (comando: string): Promise<string> =>
+  const inviaOra = (comando: string): Promise<string> =>
     new Promise((resolve, reject) => {
+      const gen = ++generazione;
       buffer = '';
-      risolvi = resolve;
+
       const scadenza = setTimeout(() => {
-        risolvi = null;
+        // Si abbandona l'attesa E si svuota il buffer: quel che arriverà dopo
+        // appartiene a un comando che nessuno sta più aspettando.
+        if (attesa?.gen === gen) attesa = null;
+        buffer = '';
         reject(new Error(`Nessuna risposta a "${comando}" entro ${TIMEOUT_MS} ms`));
       }, TIMEOUT_MS);
 
-      const originale = resolve;
-      risolvi = (testo: string) => {
-        clearTimeout(scadenza);
-        originale(testo);
+      attesa = {
+        gen,
+        risolvi: testo => {
+          clearTimeout(scadenza);
+          resolve(testo);
+        },
       };
 
       const dati = encoder.encode(comando + '\r');
@@ -146,10 +159,22 @@ export async function collega(): Promise<{ canale: Canale; servizi: ServizioScop
         : scrittura!.writeValue(dati);
       scrivi.catch(err => {
         clearTimeout(scadenza);
-        risolvi = null;
+        if (attesa?.gen === gen) attesa = null;
         reject(err);
       });
     });
+
+  // L'ELM327 è half-duplex: due richieste sovrapposte condividerebbero il
+  // buffer. La catena serializza, e il ramo di errore la mantiene viva.
+  let inCoda: Promise<unknown> = Promise.resolve();
+  const invia = (comando: string): Promise<string> => {
+    const esito = inCoda.then(
+      () => inviaOra(comando),
+      () => inviaOra(comando)
+    );
+    inCoda = esito.catch(() => {});
+    return esito;
+  };
 
   return {
     canale: {

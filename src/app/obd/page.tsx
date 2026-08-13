@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Bluetooth, Send, Trash2, ArrowLeft, AlertTriangle } from 'lucide-react';
 import { collega, supportato, INIT, type Canale, type ServizioScoperto } from '@/lib/elm327';
 import Registratore from '@/components/obd/Registratore';
+import Sonda from '@/components/obd/Sonda';
 
 type Riga = { tipo: 'inviato' | 'ricevuto' | 'errore' | 'info'; testo: string };
 
@@ -124,6 +125,8 @@ export default function ObdPage() {
         </div>
 
         <Registratore canale={canale} />
+
+        <Sonda canale={canale} />
 
         {servizi.length > 0 && (
           <details className="rounded-xl border border-gray-700/50 bg-gray-800/50 p-4">
