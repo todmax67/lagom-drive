@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { getRechargeStatus, getEngineStatus, getStatistics, getOdometer } from '@/lib/volvo-api';
 import { processSnapshot } from '@/lib/charging-detector';
 import { processTrip } from '@/lib/trip-detector';
+import { arricchisciViaggiRecenti } from '@/lib/accoppiatore';
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
@@ -175,6 +176,13 @@ export async function GET(request: Request) {
         avgConsumption: stats?.avgConsumptionKwh ?? null,
         volvoTripMeterAuto: stats?.tripMeter2Km ?? null,
       }, session.userId).catch(err => console.error('Errore processTrip:', err));
+
+      // Se processTrip ha appena chiuso un viaggio, i campioni OBD della guida
+      // sono in tabella da prima che il viaggio esistesse: l'aggancio parte da
+      // qui. Fa qualcosa solo per i viaggi recenti senza arricchimento.
+      await arricchisciViaggiRecenti(session.userId).catch(err =>
+        console.error('Accoppiatore su cron:', err)
+      );
 
       results.push({ userId: session.userId, status: 'ok' });
     } catch (error) {

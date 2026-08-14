@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Route, Zap, Battery, TrendingDown, Leaf } from 'lucide-react';
+import { Route, Zap, TrendingDown, Leaf, Gauge } from 'lucide-react';
 
 // I nullable rispecchiano lo schema Prisma: i campi energetici mancano sui
 // viaggi ricostruiti dallo storico e su quelli troppo brevi per una stima
@@ -16,6 +16,33 @@ interface Trip {
   energyUsedKwh: number | null;
   energyRegenKwh: number | null;
   avgConsumption: number | null;
+  volvoAvgConsumption: number | null;
+  obd: {
+    coverage: number;
+    sampleCount: number;
+    distanceObdKm: number | null;
+    maxSpeedKmh: number | null;
+    socStartObd: number | null;
+    socEndObd: number | null;
+    movingStart: string | null;
+    movingEnd: string | null;
+  } | null;
+}
+
+// La cascata di provenienza (docs/progetto-obd.md §3): si mostra il migliore
+// disponibile, col badge della fonte. Il livello 1 (integrato dai campioni)
+// arriverà con la potenza confermata; oggi il titolo è dichiarato o dedotto,
+// in quest'ordine — il livello 2 sta sopra il 3. L'etichetta dice "media
+// Volvo" e non "trip computer": la statistica copre tutto dall'ultimo reset
+// del contachilometri automatico, non necessariamente il singolo viaggio.
+function consumoConFonte(trip: Trip): { valore: number; fonte: string } | null {
+  if (trip.volvoAvgConsumption !== null && trip.volvoAvgConsumption > 0) {
+    return { valore: trip.volvoAvgConsumption, fonte: 'dichiarato · media Volvo' };
+  }
+  if (trip.avgConsumption !== null && trip.avgConsumption > 0) {
+    return { valore: trip.avgConsumption, fonte: 'dedotto · ΔSoC × capacità' };
+  }
+  return null;
 }
 
 function formatDate(dateStr: string) {
@@ -90,17 +117,29 @@ export default function TripHistory() {
 
             {/* Dati */}
             <div className="grid grid-cols-2 gap-2">
+              {/* Attacca e rifinisce (§4.2): quando l'OBD ha misurato, la card
+                  mostra la misura col suo marcatore. Una cifra decimale sul
+                  SOC: il passo osservato è 0.784%, due decimali dichiarerebbero
+                  una precisione che non c'è. */}
               <div className="rounded-lg bg-gray-800/60 p-2.5">
-                <p className="text-xs text-gray-500 mb-1">Batteria</p>
+                <p className="text-xs text-gray-500 mb-1">
+                  Batteria{trip.obd?.socStartObd != null && trip.obd?.socEndObd != null && ' · OBD'}
+                </p>
                 <p className="text-sm text-white font-light">
-                  {trip.startBattery}% → {trip.endBattery ?? '—'}%
+                  {trip.obd?.socStartObd != null && trip.obd?.socEndObd != null
+                    ? `${trip.obd.socStartObd.toFixed(1)}% → ${trip.obd.socEndObd.toFixed(1)}%`
+                    : `${trip.startBattery}% → ${trip.endBattery ?? '—'}%`}
                 </p>
               </div>
 
               <div className="rounded-lg bg-gray-800/60 p-2.5">
-                <p className="text-xs text-gray-500 mb-1">Durata</p>
+                <p className="text-xs text-gray-500 mb-1">
+                  Durata{trip.obd?.movingStart && trip.obd?.movingEnd && ' · OBD'}
+                </p>
                 <p className="text-sm text-white font-light">
-                  {formatDuration(trip.startedAt, trip.endedAt)}
+                  {trip.obd?.movingStart && trip.obd?.movingEnd
+                    ? formatDuration(trip.obd.movingStart, trip.obd.movingEnd)
+                    : formatDuration(trip.startedAt, trip.endedAt)}
                 </p>
               </div>
 
@@ -115,12 +154,15 @@ export default function TripHistory() {
               </div>
 
               {/* Manca sui viaggi ricostruiti dallo storico: dipende dal consumo
-                  medio Volvo del momento, che negli snapshot non è conservato. */}
+                  medio Volvo del momento, che negli snapshot non è conservato.
+                  "Recupero netto" e non "rigenerato": dal solo SOC il recupero
+                  è osservabile unicamente a saldo positivo (discesa), il lordo
+                  arriverà dall'integrale di potenza (progetto-obd §4.2). */}
               {trip.energyRegenKwh !== null && (
                 <div className="rounded-lg bg-gray-800/60 p-2.5 flex items-start gap-2">
                   <Leaf size={12} className="text-emerald-400 mt-0.5 shrink-0" />
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">Rigenerato</p>
+                    <p className="text-xs text-gray-500 mb-1">Recupero netto</p>
                     <p className="text-sm text-white font-light">
                       {trip.energyRegenKwh.toFixed(1)} kWh
                     </p>
@@ -129,15 +171,42 @@ export default function TripHistory() {
               )}
             </div>
 
-            {/* Consumo medio */}
-            {trip.avgConsumption !== null && trip.avgConsumption > 0 && (
+            {/* Consumo medio, col badge della fonte: mai un numero senza sapere
+                da dove viene. */}
+            {(() => {
+              const consumo = consumoConFonte(trip);
+              return consumo && (
+                <div className="flex items-center justify-between border-t border-gray-700/50 pt-3">
+                  <span className="text-xs text-gray-500 flex items-center gap-1">
+                    <Zap size={11} />
+                    Consumo medio
+                    <span className="text-gray-600">· {consumo.fonte}</span>
+                  </span>
+                  <span className="text-sm text-white font-light">
+                    {consumo.valore.toFixed(1)} kWh/100km
+                  </span>
+                </div>
+              );
+            })()}
+
+            {/* La riga OBD: misure, non stime. Compare solo quando l'accoppiatore
+                ha agganciato campioni, e dichiara sempre la copertura. */}
+            {trip.obd && (
               <div className="flex items-center justify-between border-t border-gray-700/50 pt-3">
                 <span className="text-xs text-gray-500 flex items-center gap-1">
-                  <Zap size={11} />
-                  Consumo medio
+                  <Gauge size={11} className="text-blue-400" />
+                  {/* floor, non round: "100%" solo a copertura piena — mai
+                      dichiarare più di quanto misurato */}
+                  OBD · copertura {Math.floor(trip.obd.coverage * 100)}%
                 </span>
-                <span className="text-sm text-white font-light">
-                  {trip.avgConsumption.toFixed(1)} kWh/100km
+                <span className="text-xs text-gray-400 font-light">
+                  {trip.obd.distanceObdKm !== null && trip.obd.distanceObdKm > 0 &&
+                    `${trip.obd.distanceObdKm.toFixed(1)} km misurati`}
+                  {trip.obd.distanceObdKm !== null && trip.obd.distanceObdKm > 0 &&
+                    trip.obd.maxSpeedKmh !== null && ' · '}
+                  {trip.obd.maxSpeedKmh !== null && `max ${Math.round(trip.obd.maxSpeedKmh)} km/h`}
+                  {trip.obd.distanceObdKm === null && trip.obd.maxSpeedKmh === null &&
+                    `${trip.obd.sampleCount} campioni senza canale veloce`}
                 </span>
               </div>
             )}

@@ -125,6 +125,44 @@ model ObdSample {
   @@index([userId, recordedAt])
 }
 
+// Arricchimento OBD dei viaggi: strato SEPARATO dal rilevatore, che non si
+// tocca (docs/progetto-obd.md §4.2). Una riga per viaggio, ricalcolabile in
+// ogni momento dai campioni grezzi: un derivato è solo l'ultima versione del
+// grezzo, e i lotti arrivati tardi rifanno il conto senza chiedere permesso.
+model TripEnrichment {
+  id          String   @id @default(cuid())
+  tripId      String   @unique
+  userId      String
+  updatedAt   DateTime @updatedAt
+  sampleCount Int
+
+  // Quota della durata realmente campionata (0-1). Decide il livello di
+  // provenienza del titolo: i buchi non si interpolano, si dichiarano.
+  coverage    Float
+  // Intervalli non campionati dentro la finestra del viaggio, per le bande
+  // grigie della UI: [{da, a}] in ISO, al massimo qualche decina.
+  gaps        Json?
+
+  // Rifinitura dei tempi: il cloud ricostruisce dai plateau dell'odometro,
+  // i campioni con velocità > 0 sanno quando l'auto si muoveva davvero.
+  movingStart DateTime?
+  movingEnd   DateTime?
+
+  // Misure di livello 1 disponibili già oggi
+  distanceObdKm Float? // ∫ velocità sui soli tratti campionati
+  maxSpeedKmh   Float?
+  socStartObd   Float? // SOC display via OBD, passo osservato 0.784%, contro l'1% del cloud
+  socEndObd     Float?
+
+  // Pronti per quando la potenza avrà un DID confermato: ∫ potenza positiva e
+  // ∫ potenza negativa in marcia (recupero lordo, non il saldo)
+  energyGrossKwh      Float?
+  energyRegenGrossKwh Float?
+
+  // Niente indice su userId: ogni lettura passa da tripId (unique). Un indice
+  // speculativo costerebbe un aggiornamento a ogni upsert senza servire nessuno.
+}
+
 model Trip {
   id                String   @id @default(cuid())
   userId            String

@@ -16,5 +16,18 @@ export async function GET() {
     take: 50,
   });
 
-  return NextResponse.json(trips);
+  // L'arricchimento OBD è uno strato separato (docs/progetto-obd.md §4.2):
+  // qui si accosta, non si fonde. Il campo `obd` assente significa "viaggio
+  // senza campioni", che è il caso normale, non un errore. Il catch copre la
+  // finestra in cui la tabella non esiste ancora: Preview e dev condividono il
+  // database di produzione, e lì le migration arrivano solo col deploy — la
+  // lista viaggi non deve cadere per uno strato che è, per progetto, opzionale.
+  const arricchimenti = await prisma.tripEnrichment.findMany({
+    where: { tripId: { in: trips.map(t => t.id) } },
+  }).catch(() => []);
+  const perViaggio = new Map(arricchimenti.map(a => [a.tripId, a]));
+
+  return NextResponse.json(
+    trips.map(t => ({ ...t, obd: perViaggio.get(t.id) ?? null }))
+  );
 }

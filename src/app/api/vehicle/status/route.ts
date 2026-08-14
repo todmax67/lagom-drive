@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { processSnapshot } from '@/lib/charging-detector';
 import { processTrip } from '@/lib/trip-detector';
 import { getVin, getRechargeStatus, getEngineStatus, getOdometer } from '@/lib/volvo-api';
+import { arricchisciViaggiRecenti } from '@/lib/accoppiatore';
 
 export async function GET() {
   const session = await auth();
@@ -41,6 +42,12 @@ export async function GET() {
           { battery: battery.level, odometer, avgConsumption: null, volvoTripMeterAuto: null },
           userId
         ).catch(err => console.error('Errore processTrip:', err));
+
+        // Stessa regola del cron: chi può aver chiuso un viaggio aggancia i
+        // campioni OBD già in tabella. No-op se non c'è niente di nuovo.
+        await arricchisciViaggiRecenti(userId).catch(err =>
+          console.error('Accoppiatore su status:', err)
+        );
       }
     }
 
