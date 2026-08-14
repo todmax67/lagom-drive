@@ -19,6 +19,11 @@
 #   - su repository pubblici GitHub disattiva i workflow pianificati dopo 60
 #     giorni senza attività, ma lo annuncia per email. È il tipo di guasto che
 #     si può vedere arrivare, al contrario di quello che ci ha colpiti.
+#   - la pianificazione si registra al push del file sul branch di default, e
+#     la prima registrazione può non avvenire affatto: è successo qui — un'ora
+#     senza giri, con gli avvii manuali perfettamente funzionanti. Il rimedio
+#     è un push qualsiasi che tocchi questo file, come quello che ha aggiunto
+#     questa riga. Se ricapita, questo è il motivo.
 
 name: Poll Volvo
 
