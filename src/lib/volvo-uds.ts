@@ -162,13 +162,21 @@ export async function sondaCentralina(
  * I DID da registrare a ogni sessione, sulla batteria di trazione.
  *
  * `campo` è valorizzato solo dove la formula è CONFERMATA da un riscontro
- * indipendente: la tensione di pacco è scesa di 5.0 V mentre la carica calava
- * di 4.3 punti, che su 96 celle in serie fa 52 mV a cella — la curva di scarica
- * agli ioni di litio si comporta esattamente così.
+ * indipendente. Dove manca, il payload finisce grezzo in didRaw.
  *
- * Dove `campo` manca il payload finisce grezzo in didRaw. Il candidato SoH è
- * rimasto identico per tre ore e mezza attraverso un viaggio, ma immobile lo
- * sarebbe anche una costante di capacità: si registra e si guarda nel tempo.
+ * Sulla tensione di pacco c'è voluta una seconda misura. Ad auto sveglia
+ * 224857, 224858, 224803 e 22497C dicevano tutti la stessa cosa — 392.3, 392.6,
+ * 392 e 391.9 V — e sembravano intercambiabili. Ad auto ferma da una notte i
+ * primi due sono crollati a 2.0 e 1.9 V mentre gli altri due tenevano 387 e
+ * 387.00: 224857 e 224858 misurano il bus a valle dei contattori, che aperti
+ * non ha più tensione. La tensione vera del pacco è 22497C.
+ *
+ * La differenza conta perché la tensione a riposo, letta a carica nota, è il
+ * modo più pulito che abbiamo di seguire il decadimento senza integrare la
+ * corrente — ed è proprio la lettura che 224857 non sa dare.
+ *
+ * 224857 resta comunque registrato: valendo zero a contattori aperti dice
+ * gratis se l'auto è viva, cosa che nessun altro dato qui distingue.
  */
 export const DID_DA_REGISTRARE: {
   did: string;
@@ -177,10 +185,12 @@ export const DID_DA_REGISTRARE: {
   converti?: (b: number[]) => number | null;
 }[] = [
   {
-    did: '224857',
+    did: '22497C',
     etichetta: 'Tensione pacco',
     campo: 'packVoltage',
-    converti: b => (b.length >= 2 ? (b[0] * 256 + b[1]) / 10 : null),
+    // I valori osservati sono sempre multipli di 10: la scala è /100 ma la
+    // risoluzione effettiva resta 0.1 V
+    converti: b => (b.length >= 2 ? (b[0] * 256 + b[1]) / 100 : null),
   },
   {
     did: '224804',
@@ -201,9 +211,14 @@ export const DID_DA_REGISTRARE: {
     converti: b => (b.length >= 2 ? (b[0] * 256 + b[1]) / 1000 : null),
   },
   // Da qui in poi solo grezzi: la scala non è confermata
+  { did: '224857', etichetta: 'Tensione bus HV, zero a contattori aperti' },
+  { did: '224803', etichetta: 'Tensione pacco in volt interi, riscontro di 22497C' },
   { did: '22496D', etichetta: 'Candidato SoH' },
+  // Payload di tre byte, l'ultimo sempre 03. I primi due valgono 62-71 ad auto
+  // sveglia e zero esatto dopo una notte ferma: si comporta come una corrente,
+  // ma la scala non è ancora fissata e 0.1 A resta un'ipotesi.
   { did: '224802', etichetta: 'Candidato corrente' },
-  { did: '224858', etichetta: 'Somma tensioni celle' },
+  { did: '224858', etichetta: 'Secondo bus HV' },
   { did: '224A58', etichetta: 'Piccolo valore con segno' },
 ];
 

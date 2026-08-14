@@ -1,0 +1,67 @@
+# Secondo scheduler, in parallelo a cron-job.org.
+#
+# Non lo sostituisce: lo affianca. /api/cron/poll decide da sé se è il momento
+# di interrogare Volvo — 2 minuti in movimento, 5 da fermo, 15 a sosta lunga —
+# e a chi chiama troppo presto risponde "skipped". Chiamare due volte non
+# raddoppia nulla, quindi la ridondanza non costa niente e nessuno dei due
+# scheduler deve essere affidabile da solo.
+#
+# Serve perché cron-job.org si è fermato in silenzio due volte, e in entrambi i
+# casi ce ne siamo accorti per caso. Qui la pianificazione sta nel repository:
+# si vede nei diff, le esecuzioni sono nella scheda Actions, e i fallimenti
+# arrivano per email invece di sparire in un pannello che nessuno apre.
+#
+# Limiti da conoscere, perché li ha:
+#   - il minimo è 5 minuti, non 1: da solo perderebbe la cadenza da 2 minuti
+#     che serve durante un viaggio, ed è un altro motivo per tenerli entrambi
+#   - GitHub ritarda le esecuzioni pianificate sotto carico, e quando è molto
+#     carico ne scarta: all'inizio di ogni ora capita
+#   - su repository pubblici GitHub disattiva i workflow pianificati dopo 60
+#     giorni senza attività, ma lo annuncia per email. È il tipo di guasto che
+#     si può vedere arrivare, al contrario di quello che ci ha colpiti.
+
+name: Poll Volvo
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  # Per provarlo subito dalla scheda Actions senza aspettare il prossimo giro
+  workflow_dispatch:
+
+# Un poll alla volta: se GitHub accoda esecuzioni in ritardo, non ha senso
+# scaricarle tutte insieme sull'endpoint.
+concurrency:
+  group: poll-volvo
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Chiama /api/cron/poll
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::error::Manca il secret CRON_SECRET nelle impostazioni del repository."
+            exit 1
+          fi
+
+          # Il codice HTTP va separato dal corpo: l'endpoint risponde 503 quando
+          # la raccolta è ferma da oltre 45 minuti, ed è proprio l'allarme che
+          # vogliamo far arrivare invece di seppellire in un log verde.
+          corpo=$(mktemp)
+          codice=$(curl -sS --max-time 60 -o "$corpo" -w '%{http_code}' \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            https://lagom-drive.vercel.app/api/cron/poll)
+
+          echo "HTTP $codice"
+          cat "$corpo"
+          echo
+
+          if [ "$codice" != "200" ]; then
+            echo "::error::L'endpoint ha risposto $codice"
+            exit 1
+          fi

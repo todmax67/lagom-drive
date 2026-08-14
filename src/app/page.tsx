@@ -19,6 +19,7 @@ import { useVehicleData } from '@/hooks/useVehicleData';
 import SettingsPage from '@/components/dashboard/SettingsPage';
 import MonthlyHistory from '@/components/dashboard/MonthlyHistory';
 import TripHistory from '@/components/dashboard/TripHistory';
+import RaccoltaFerma from '@/components/dashboard/RaccoltaFerma';
 
 type Page = 'dashboard' | 'stats' | 'location' | 'charging' | 'trips' | 'settings';
 
@@ -192,6 +193,10 @@ useEffect(() => {
             </button>
           </div>
         </header>
+
+        {/* Sopra il contenuto e su ogni pagina: è un guasto che sta facendo
+            perdere dati adesso, non una nota da cercare in un pannello */}
+        <RaccoltaFerma snapshots={snapshots} />
 
         {renderContent()}
       </div>
