@@ -22,9 +22,12 @@ const FERMA_DA_MIN = 45;
 
 type Snapshot = { createdAt: string; source?: string };
 
-export default function RaccoltaFerma({ snapshots }: { snapshots: Snapshot[] }) {
-  // Nessun dato affatto significa "sto ancora caricando", non "è tutto rotto"
-  if (!snapshots.length) return null;
+export default function RaccoltaFerma({ snapshots }: { snapshots: Snapshot[] | null }) {
+  // null = la risposta non è ancora arrivata: non si sa nulla, si tace.
+  // Un array vuoto invece è un'informazione, la peggiore: in 24 ore non ha
+  // scritto nessuno. Prima i due casi erano lo stesso valore, e l'avviso
+  // taceva proprio sul blackout più lungo — quello oltre la finestra.
+  if (!Array.isArray(snapshots)) return null;
 
   const ultimoCron = snapshots
     .filter(s => s.source === 'cron')
@@ -53,9 +56,17 @@ function Avviso({ testo }: { testo: string }) {
       <AlertTriangle className="text-amber-400 mt-0.5 shrink-0" size={18} />
       <div>
         <p className="text-sm font-semibold text-amber-300">Raccolta ferma</p>
+        {/* Non si dichiara la causa: da qui si vede solo l'età dei campioni.
+            L'ultima volta il colpevole non era lo scheduler ma il refresh del
+            token, e un avviso che indica la pista sbagliata fa perdere più
+            tempo di uno che ammette di non sapere. In particolare non si
+            suggerisce di rifare il login: su un guasto a valle non serve, e
+            ruota il refresh token per niente. */}
         <p className="text-sm text-gray-400 mt-1">
-          {testo} L&apos;app risponde: a essersi fermato è lo scheduler esterno.
-          Controlla che il job su cron-job.org sia ancora attivo.
+          {testo} Da qui si vede l&apos;età dei campioni, non la causa: può
+          essere lo scheduler, il rinnovo del Volvo ID, l&apos;API Volvo o il
+          database. Quale sia lo dice l&apos;ultimo run del workflow «Poll
+          Volvo» su GitHub Actions, che stampa la risposta della raccolta.
         </p>
       </div>
     </div>

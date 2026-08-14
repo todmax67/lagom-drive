@@ -29,17 +29,31 @@ function Dashboard() {
   const { status, stats, location, isLoading, error, refresh } = useVehicleData();
 
   const [sessions, setSessions] = useState<any[]>([]);
-  const [snapshots, setSnapshots] = useState<any[]>([]);
+  // null = risposta non ancora arrivata. Un array vuoto invece È un dato — il
+  // peggiore: nessun campione in tutta la finestra — e l'avviso di raccolta
+  // ferma deve poterlo distinguere dal caricamento iniziale.
+  const [snapshots, setSnapshots] = useState<any[] | null>(null);
 
   const fetchChargingData = useCallback(async () => {
   if (session?.accessToken) {
     fetch('/api/charging/sessions').then(r => r.json()).then(setSessions).catch(() => {});
-    fetch('/api/charging/snapshots?hours=24').then(r => r.json()).then(setSnapshots).catch(() => {});
+    fetch('/api/charging/snapshots?hours=24')
+      .then(r => r.json())
+      // Un 401 o un errore restituiscono un oggetto, non un array: passarlo
+      // avanti farebbe scattare avvisi su dati che non sono dati.
+      .then(d => { if (Array.isArray(d)) setSnapshots(d); })
+      .catch(() => {});
   }
 }, [session]);
 
 useEffect(() => {
   fetchChargingData();
+  // Gli snapshot alimentano l'avviso di raccolta ferma: vanno riletti a tempo,
+  // non solo quando cambia `status`. Se /api/vehicle/status fallisce, `status`
+  // resta fermo e l'avviso misurerebbe per ore l'età di dati rimasti al mount:
+  // si accenderebbe con il cron sano, e non si spegnerebbe alla ripresa.
+  const id = setInterval(fetchChargingData, 5 * 60 * 1000);
+  return () => clearInterval(id);
 }, [fetchChargingData, status]);
 
   const renderContent = () => {
@@ -70,7 +84,7 @@ useEffect(() => {
       return (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           <MonthlyStats sessions={sessions} stats={stats} />
-          <BatteryChart snapshots={snapshots} />
+          <BatteryChart snapshots={snapshots ?? []} />
           <div className="xl:col-span-2">
             <MonthlyHistory />
           </div>

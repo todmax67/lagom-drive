@@ -49,9 +49,6 @@ jobs:
             exit 1
           fi
 
-          # Il codice HTTP va separato dal corpo: l'endpoint risponde 503 quando
-          # la raccolta è ferma da oltre 45 minuti, ed è proprio l'allarme che
-          # vogliamo far arrivare invece di seppellire in un log verde.
           corpo=$(mktemp)
           codice=$(curl -sS --max-time 60 -o "$corpo" -w '%{http_code}' \
             -H "Authorization: Bearer ${CRON_SECRET}" \
@@ -61,7 +58,27 @@ jobs:
           cat "$corpo"
           echo
 
+          # Lo stato HTTP dice solo se la richiesta è stata gestita. Un 401 o un
+          # 500 sono guasti veri; la salute della raccolta no, quella sta nel
+          # corpo, perché l'endpoint deve poter dire "sono in allarme" senza che
+          # uno scheduler lo interpreti come "smetti di chiamarmi".
           if [ "$codice" != "200" ]; then
             echo "::error::L'endpoint ha risposto $codice"
+            exit 1
+          fi
+
+          # Qui invece il fallimento è voluto: GitHub manda una email a ogni
+          # passo fallito ma continua a pianificare il workflow, quindi è il
+          # posto giusto dove far uscire l'allarme.
+          #
+          # Si allarma solo su un false esplicito, non su "diverso da true":
+          # fra il merge di questo file e il deploy che aggiunge il campo passa
+          # qualche minuto in cui la risposta non ha `healthy`, e non è un
+          # guasto. Da notare che qui `jq //` non si può usare: in jq anche
+          # false è vuoto, quindi `.healthy // "assente"` maschererebbe proprio
+          # il caso da intercettare.
+          if [ "$(jq -r '.healthy' "$corpo")" = "false" ]; then
+            echo "::error::Raccolta in allarme: $(jq -r '.alert // "sconosciuto"' "$corpo")" \
+                 "— ultimo dato $(jq -r '.lastDataMinutesAgo // "mai"' "$corpo") min fa"
             exit 1
           fi

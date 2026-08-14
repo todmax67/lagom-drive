@@ -4,13 +4,25 @@ import type { NextAuthConfig } from 'next-auth';
 // Funzione che chiama Volvo per ottenere un nuovo access token.
 // Volvo ID vuole le credenziali in Basic auth, non nel body: è lo stesso
 // schema usato da /api/volvo-token e dal cron di polling.
-async function refreshAccessToken(refreshToken: string) {
-  try {
-    const basicAuth = Buffer.from(
-      `${process.env.VOLVO_CLIENT_ID}:${process.env.VOLVO_CLIENT_SECRET}`
-    ).toString('base64');
+//
+// Un fallimento del refresh non è una cosa sola. Un 4xx significa refresh
+// token revocato o già consumato: permanente, si cura solo rifacendo il login.
+// Un 5xx di Volvo ID, un timeout o una risposta non-JSON sono intoppi che
+// passano da soli. Prima confluivano tutti nello stesso RefreshTokenError, e
+// un blip di trenta secondi dell'IdP buttava fuori l'utente con una
+// credenziale perfettamente valida in mano.
+type RefreshEsito =
+  | { ok: true; accessToken: string; refreshToken: string; expiresAt: number }
+  | { ok: false; permanente: boolean };
 
-    const response = await fetch('https://volvoid.eu.volvocars.com/as/token.oauth2', {
+async function refreshAccessToken(refreshToken: string): Promise<RefreshEsito> {
+  const basicAuth = Buffer.from(
+    `${process.env.VOLVO_CLIENT_ID}:${process.env.VOLVO_CLIENT_SECRET}`
+  ).toString('base64');
+
+  let response: Response;
+  try {
+    response = await fetch('https://volvoid.eu.volvocars.com/as/token.oauth2', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -21,25 +33,49 @@ async function refreshAccessToken(refreshToken: string) {
         refresh_token: refreshToken,
       }),
     });
-
-    const tokens = await response.json();
-
-    if (!response.ok) throw tokens;
-
-    return {
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token ?? refreshToken,
-      expiresAt: Math.floor(Date.now() / 1000) + tokens.expires_in,
-      error: null,
-    };
   } catch (error) {
-    console.error('Errore refresh token:', error);
-    return {
-      accessToken: null,
-      refreshToken: null,
-      expiresAt: 0,
-      error: 'RefreshTokenError',
-    };
+    console.error('Refresh token: errore di rete (transitorio):', error);
+    return { ok: false, permanente: false };
+  }
+
+  let tokens: { access_token?: string; refresh_token?: string; expires_in?: number };
+  try {
+    tokens = await response.json();
+  } catch {
+    console.error(`Refresh token: risposta non-JSON con status ${response.status}`);
+    return { ok: false, permanente: false };
+  }
+
+  if (!response.ok || !tokens.access_token) {
+    const permanente = response.status >= 400 && response.status < 500;
+    console.error(`Refresh token fallito (${response.status}, permanente=${permanente}):`, tokens);
+    return { ok: false, permanente };
+  }
+
+  return {
+    ok: true,
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token ?? refreshToken,
+    expiresAt: Math.floor(Date.now() / 1000) + (tokens.expires_in ?? 1800),
+  };
+}
+
+// Il VIN identifica la riga UserSession che il cron usa per chiamare Volvo.
+// Recuperarlo può fallire (l'API veicoli ha i suoi 5xx), e in quel caso si
+// riproverà: mai memorizzare un fallimento come identità.
+async function recuperaVin(accessToken: string): Promise<string | null> {
+  try {
+    const risposta = await fetch('https://api.volvocars.com/connected-vehicle/v2/vehicles', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'vcc-api-key': process.env.VOLVO_API_KEY!,
+      },
+    });
+    const dati = await risposta.json();
+    return dati?.data?.[0]?.vin ?? null;
+  } catch {
+    console.error('Errore recupero VIN');
+    return null;
   }
 }
 
@@ -83,19 +119,7 @@ export const config: NextAuthConfig = {
     async jwt({ token, account }) {
       // Primo login — salviamo i token e recuperiamo il VIN
       if (account) {
-  let vin: string | null = null;
-  try {
-    const vinResponse = await fetch('https://api.volvocars.com/connected-vehicle/v2/vehicles', {
-      headers: {
-        'Authorization': `Bearer ${account.access_token}`,
-        'vcc-api-key': process.env.VOLVO_API_KEY!,
-      },
-    });
-    const vinData = await vinResponse.json();
-    vin = vinData?.data?.[0]?.vin ?? null;
-  } catch {
-    console.error('Errore recupero VIN durante login');
-  }
+        const vin = await recuperaVin(account.access_token as string);
 
   // Salva sessione nel database per il cron job
         if (vin) {
@@ -128,6 +152,15 @@ export const config: NextAuthConfig = {
         };
       }
 
+      // Una sessione nata senza VIN (fetch fallito al login) resterebbe
+      // chiavata sul sub OIDC per novanta giorni: il cron lo userebbe come VIN
+      // negli URL Volvo e prenderebbe 404 a ogni giro. Il VIN non cambia mai,
+      // quindi si ritenta a ogni richiesta finché non arriva.
+      if (!token.vin && token.accessToken) {
+        const vinRecuperato = await recuperaVin(token.accessToken as string);
+        if (vinRecuperato) token.vin = vinRecuperato;
+      }
+
       // Token ancora valido — lo restituiamo così com'è
       if (Date.now() < (token.expiresAt as number) * 1000 - 60_000) {
         return token;
@@ -157,26 +190,39 @@ export const config: NextAuthConfig = {
       console.log('Token scaduto, refreshing...');
       const refreshed = await refreshAccessToken(stored?.refreshToken ?? (token.refreshToken as string));
 
-      // Propaghiamo i token nuovi al cron, altrimenti resterebbe con quelli vecchi
-      if (!refreshed.error && vin) {
-        await prisma.userSession.update({
-          where: { userId: vin },
-          data: {
-            accessToken: refreshed.accessToken!,
-            refreshToken: refreshed.refreshToken!,
-            expiresAt: refreshed.expiresAt,
-            lastSeen: new Date(),
-          },
-        }).catch(err => console.error('Errore sync UserSession:', err));
+      if (refreshed.ok) {
+        // Propaghiamo i token nuovi al cron, altrimenti resterebbe con quelli vecchi
+        if (vin) {
+          await prisma.userSession.update({
+            where: { userId: vin },
+            data: {
+              accessToken: refreshed.accessToken,
+              refreshToken: refreshed.refreshToken,
+              expiresAt: refreshed.expiresAt,
+              lastSeen: new Date(),
+            },
+          }).catch(err => console.error('Errore sync UserSession:', err));
+        }
+
+        return {
+          ...token,
+          accessToken: refreshed.accessToken,
+          refreshToken: refreshed.refreshToken,
+          expiresAt: refreshed.expiresAt,
+          error: null,
+        };
       }
 
-      return {
-        ...token,
-        accessToken: refreshed.accessToken,
-        refreshToken: refreshed.refreshToken,
-        expiresAt: refreshed.expiresAt,
-        error: refreshed.error,
-      };
+      // Permanente: il refresh token è morto, serve il login. Solo qui si
+      // aziona la schermata "connessione scaduta".
+      if (refreshed.permanente) {
+        return { ...token, error: 'RefreshTokenError' };
+      }
+
+      // Transitorio: si lascia tutto com'è e si ritenta alla prossima
+      // richiesta. Il token è scaduto e le chiamate falliranno per qualche
+      // minuto, ma l'utente resta dentro e la credenziale resta viva.
+      return token;
     },
 
     async session({ session, token }) {

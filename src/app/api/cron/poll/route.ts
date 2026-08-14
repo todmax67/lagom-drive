@@ -10,9 +10,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ message: 'Non autorizzato' }, { status: 401 });
   }
 
+  try {
+  // Sveglia Neon con retry progressivo. Sta dentro il try: anche un $connect
+  // che lancia deve uscire come 200 in allarme, non come 500 di Vercel.
   await prisma.$connect();
-
-  // Sveglia Neon con retry progressivo
     let connected = false;
     for (let i = 0; i < 3; i++) {
       try {
@@ -26,10 +27,22 @@ export async function GET(request: Request) {
     }
 
     if (!connected) {
-      return NextResponse.json({ error: 'Database non raggiungibile' }, { status: 503 });
+      // Un intoppo del database non deve spegnere lo scheduler: qui c'era un
+      // 503, ed è lo stesso meccanismo dei due blackout — cron-job.org legge i
+      // 5xx come "endpoint rotto" e si disabilita da solo. Il guasto viaggia
+      // nel corpo come tutti gli altri, e ad allarmare pensano il workflow
+      // GitHub e la dashboard.
+      console.error('Cron: Neon non raggiungibile dopo 3 tentativi');
+      return NextResponse.json({
+        healthy: false,
+        alert: 'db_irraggiungibile',
+        processed: 0,
+        failed: 0,
+        lastDataMinutesAgo: null,
+        results: [],
+        timestamp: new Date().toISOString(),
+      });
     }
-
-  try {
   const sessions = await prisma.userSession.findMany();
   const results = [];
 
@@ -170,18 +183,29 @@ export async function GET(request: Request) {
     }
   }
 
-  // Lo scheduler esterno vede solo lo status HTTP, e va avvisato quando la
-  // raccolta si ferma: senza, può restare rotta per mesi senza che nessuno se
-  // ne accorga. Ma va avvisato con parsimonia, perché dopo qualche fallimento
-  // consecutivo disabilita il job da solo: rispondere 503 a ogni intoppo
-  // transitorio dell'API Volvo trasforma il monitoraggio nella causa del
-  // guasto. È già successo.
+  // Lo stato HTTP dice se la richiesta è stata gestita, NON se i dati sono sani.
+  // Confondere le due cose ha ucciso lo scheduler due volte.
   //
-  // Il segnale giusto non è "questo poll è fallito" ma "non si raccolgono più
-  // dati da troppo tempo": un errore isolato passa, un guasto persistente no.
+  // La seconda è istruttiva: il refresh del token Volvo è fallito, la raccolta
+  // era ferma da 97 minuti, questo endpoint ha risposto 503 — e cron-job.org,
+  // che legge 503 come "endpoint rotto", ha disabilitato il job. Un intoppo di
+  // autenticazione che si sarebbe risolto da solo al login successivo è
+  // diventato un blackout di diciassette ore. La prima volta avevo alzato la
+  // soglia; non serviva a niente, perché il problema non era quando segnalare
+  // ma a chi, e attraverso cosa.
+  //
+  // Da qui in poi la risposta è sempre 200 se la richiesta è autenticata e
+  // gestita. La salute viaggia nel corpo, in `healthy` e `alert`, e ad allarmare
+  // pensa chi può farlo senza spegnersi: il workflow GitHub, che fallisce il
+  // passo e manda una email ma resta pianificato, e l'avviso in dashboard.
   const failed = results.filter(r => r.status === 'error' || r.status === 'refresh_failed');
 
+  // Solo i campioni scritti dal cron: quelli con source 'dashboard' li produce
+  // chi sta guardando, e contarli qui maschererebbe proprio il guasto da
+  // segnalare — con la PWA aperta su un tab, l'allarme non partirebbe mai.
+  // Stessa scelta, e stessa ragione, di RaccoltaFerma.tsx.
   const ultimoSnapshot = await prisma.batterySnapshot.findFirst({
+    where: { source: 'cron' },
     orderBy: { createdAt: 'desc' },
     select: { createdAt: true },
   });
@@ -197,22 +221,44 @@ export async function GET(request: Request) {
   // intoppo: lì l'allarme è immediato, perché non si risolve da sé.
   const nessunaSessione = results.length === 0;
   const guastoPersistente = failed.length > 0 && fermoDaMin > RACCOLTA_FERMA_MIN;
-  const daSegnalare = nessunaSessione || guastoPersistente;
+  const allarme = nessunaSessione
+    ? 'nessuna_sessione'
+    : guastoPersistente
+      ? 'raccolta_ferma'
+      : null;
 
   if (failed.length > 0) {
     console.error(
       `Cron: ${failed.length} sessioni fallite su ${results.length}, ` +
-        `ultimo dato ${fermoDaMin} min fa, allarme=${daSegnalare}`
+        `ultimo dato ${fermoDaMin} min fa, allarme=${allarme ?? 'no'}`
     );
   }
 
+  // Sempre 200: vedi sopra. Chi legge questo corpo sa cosa fare dell'allarme,
+  // uno scheduler che vede un 5xx sa solo smettere di chiamare.
   return NextResponse.json({
+    healthy: allarme === null,
+    alert: allarme,
     processed: results.length,
     failed: failed.length,
     lastDataMinutesAgo: fermoDaMin === Infinity ? null : fermoDaMin,
     results,
     timestamp: new Date().toISOString(),
-  }, { status: daSegnalare ? 503 : 200 });
+  });
+  } catch (error) {
+    // Senza questo catch un errore Prisma a metà handler uscirebbe come 500 di
+    // Vercel: per lo scheduler è indistinguibile dal 503 che lo faceva
+    // disabilitare. Autenticato e gestito significa 200, sempre.
+    console.error('Cron: errore non gestito:', error);
+    return NextResponse.json({
+      healthy: false,
+      alert: 'errore_interno',
+      processed: 0,
+      failed: 0,
+      lastDataMinutesAgo: null,
+      results: [],
+      timestamp: new Date().toISOString(),
+    });
   } finally {
     await prisma.$disconnect();
   }
