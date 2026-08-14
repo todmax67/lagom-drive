@@ -68,10 +68,22 @@ export function sequenzaPreparazione(ecu: string): string[] {
 }
 
 /**
- * Da rieseguire sempre a fine interrogazione: lasciando la priorità a 0x1D e il
- * filtro impostato, i PID standard rispondono NO DATA. È già successo.
+ * Da rieseguire sempre a fine interrogazione: lasciando lo stato Volvo attivo,
+ * i PID standard rispondono NO DATA. È già successo due volte.
+ *
+ * La seconda è costata i PID di due viaggi interi. Il ripristino rimetteva
+ * priorità e ricezione ma NON l'header di trasmissione: l'init non lo imposta
+ * mai (dopo ATZ vale il default del protocollo 7, 18DB33F1), quindi il primo
+ * ATSH D01635 restava attivo per sempre e ogni 015B successivo era indirizzato
+ * alla centralina della batteria, che il servizio 01 lo ignora. ATSHDB33F1 è
+ * esattamente ciò che Car Scanner manda nel suo log per tornare allo standard.
  */
-export const SEQUENZA_RIPRISTINO = ['ATAR', `ATCP${PRIORITA_STANDARD}`];
+export const SEQUENZA_RIPRISTINO = [
+  'ATFCSM0',
+  'ATAR',
+  `ATCP${PRIORITA_STANDARD}`,
+  'ATSHDB33F1',
+];
 
 /**
  * Estrae i byte dati da una risposta positiva. Il servizio 22 risponde con 62
@@ -125,6 +137,23 @@ function interpreta(b: number[]): { formula: string; valore: number }[] {
   return out;
 }
 
+/**
+ * Interroga un DID ritentando una volta se la risposta non si lascia estrarre.
+ *
+ * Serve soprattutto al primo DID dopo la preparazione: su due viaggi registrati
+ * il primo della lista è fallito 208 volte su 208, il secondo ~1 su 5, dal
+ * settimo in poi mai — il canale ha bisogno di un colpo per assestarsi dopo i
+ * sei comandi AT, e senza retry quel colpo se lo prende sempre lo stesso DID.
+ */
+async function leggiDid(
+  invia: (comando: string) => Promise<string>,
+  did: string
+): Promise<string> {
+  const prima = await invia(did).catch(e => `ERRORE ${e instanceof Error ? e.message : e}`);
+  if (estraiPayload(prima, did) || codiceNegativo(prima) !== null) return prima;
+  return invia(did).catch(e => `ERRORE ${e instanceof Error ? e.message : e}`);
+}
+
 export async function sondaCentralina(
   invia: (comando: string) => Promise<string>,
   centralina: Centralina,
@@ -138,7 +167,7 @@ export async function sondaCentralina(
   const letture: Lettura[] = [];
   try {
     for (const did of centralina.did) {
-      const grezza = await invia(did).catch(e => `ERRORE ${e instanceof Error ? e.message : e}`);
+      const grezza = await leggiDid(invia, did);
       const payload = estraiPayload(grezza, did);
       letture.push({
         did,
@@ -212,12 +241,14 @@ export const DID_DA_REGISTRARE: {
   },
   // Da qui in poi solo grezzi: la scala non è confermata
   //
-  // 22489E è il candidato più promettente: quattro byte che letti come joule
-  // fanno ~52.4 kWh al 75% di carica — e in una notte di sosta sono scesi di
-  // 0.555 kWh, cioè 35 W medi di standby. Un contatore di vita non può
-  // scendere: se è quello che sembra, è l'ENERGIA RESIDUA nel pacco, e la
-  // differenza fra due letture è l'energia netta di un viaggio, senza
-  // integrare niente. La conferma è un viaggio con lettura prima e dopo.
+  // 22489E letto come joule dà, ad auto riposata, un valore che due mattine di
+  // fila combacia con carica × ~70 kWh. Ma il test del viaggio l'ha bocciato
+  // come contachilometri dell'energia: su due tratte da ~50 km è sceso di 1.0
+  // e 2.3 kWh contro i 4 e 10 stimati dal cloud — un fattore ~4 — e nelle due
+  // ore di sosta fra i viaggi è RISALITO di 0.44. Scende con continuità in
+  // marcia e si ricalibra verso l'alto a riposo: si comporta da stima lenta
+  // del BMS, non da contatore. Se vale qualcosa, vale da fermo ad auto
+  // riposata; il verdetto è la lettura a riposo a una carica molto diversa.
   { did: '22489E', etichetta: 'Candidato energia residua' },
   { did: '224857', etichetta: 'Tensione bus HV, zero a contattori aperti' },
   { did: '224803', etichetta: 'Tensione pacco in volt interi, riscontro di 22497C' },
@@ -246,7 +277,7 @@ export async function leggiDidVolvo(invia: (c: string) => Promise<string>): Prom
 
   try {
     for (const v of DID_DA_REGISTRARE) {
-      const risposta = await invia(v.did).catch(() => '');
+      const risposta = await leggiDid(invia, v.did).catch(() => '');
       const payload = estraiPayload(risposta, v.did);
       if (!payload) continue;
       grezzi[v.did] = payload.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
