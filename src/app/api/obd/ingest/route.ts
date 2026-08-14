@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { createHash } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
+import { arricchisciViaggiNellaFinestra } from '@/lib/accoppiatore';
 
 const MAX_BATCH = 500;
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -134,6 +135,26 @@ export async function POST(request: Request) {
     where: { id: device.id },
     data: { lastSeen: new Date() },
   });
+
+  // Un lotto nuovo può riempire buchi di viaggi già arricchiti: si ricalcolano
+  // i viaggi che si sovrappongono all'intervallo del lotto. Con `after` il
+  // lavoro parte a risposta già inviata: chi manda il lotto è un telefono in
+  // auto su rete mobile, e ogni millisecondo di attesa in più è rischio di
+  // timeout su dati che sono già al sicuro in tabella.
+  //
+  // Il gate è su rows e non su inseriti: un rinvio tutto-duplicati è proprio
+  // il retry del caso in cui il primo tentativo è morto fra la scrittura e
+  // l'arricchimento, e il ricalcolo idempotente in più non costa niente.
+  if (rows.length > 0) {
+    const tempi = rows.map(r => r.recordedAt.getTime());
+    after(() =>
+      arricchisciViaggiNellaFinestra(
+        device.userId,
+        new Date(Math.min(...tempi)),
+        new Date(Math.max(...tempi))
+      ).catch(err => console.error('Accoppiatore su ingest:', err))
+    );
+  }
 
   // I tre numeri vanno distinti: un campione già presente non è un errore, ma
   // se "duplicati" resta alto significa che il dongle sta rinviando in continuo.
