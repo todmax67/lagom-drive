@@ -31,14 +31,16 @@ interface Trip {
 
 // La cascata di provenienza (docs/progetto-obd.md §3): si mostra il migliore
 // disponibile, col badge della fonte. Il livello 1 (integrato dai campioni)
-// arriverà con la potenza confermata; oggi il titolo è dichiarato o dedotto,
-// in quest'ordine — il livello 2 sta sopra il 3. L'etichetta dice "media
-// Volvo" e non "trip computer": la statistica copre tutto dall'ultimo reset
-// del contachilometri automatico, non necessariamente il singolo viaggio.
+// arriverà con la potenza confermata.
+//
+// Il livello 2 oggi è VUOTO, e non per svista: volvoAvgConsumption sembra il
+// consumo dichiarato del viaggio ma è la media dall'ultimo azzeramento MANUALE
+// del contachilometri — sullo storico vale 16.1-16.6 fisso mentre il dedotto
+// dei singoli viaggi balla da 8.2 a 26.8. Mostrarla come consumo del viaggio
+// ha prodotto una card con "4.0 kWh consumati" e "16.1 kWh/100km" fianco a
+// fianco. Un livello 2 vero esisterà quando avremo un dichiarato per-viaggio;
+// fino ad allora il titolo è il dedotto, che almeno parla di QUESTO viaggio.
 function consumoConFonte(trip: Trip): { valore: number; fonte: string } | null {
-  if (trip.volvoAvgConsumption !== null && trip.volvoAvgConsumption > 0) {
-    return { valore: trip.volvoAvgConsumption, fonte: 'dichiarato · media Volvo' };
-  }
   if (trip.avgConsumption !== null && trip.avgConsumption > 0) {
     return { valore: trip.avgConsumption, fonte: 'dedotto · ΔSoC × capacità' };
   }
