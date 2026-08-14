@@ -211,6 +211,14 @@ export const DID_DA_REGISTRARE: {
     converti: b => (b.length >= 2 ? (b[0] * 256 + b[1]) / 1000 : null),
   },
   // Da qui in poi solo grezzi: la scala non è confermata
+  //
+  // 22489E è il candidato più promettente: quattro byte che letti come joule
+  // fanno ~52.4 kWh al 75% di carica — e in una notte di sosta sono scesi di
+  // 0.555 kWh, cioè 35 W medi di standby. Un contatore di vita non può
+  // scendere: se è quello che sembra, è l'ENERGIA RESIDUA nel pacco, e la
+  // differenza fra due letture è l'energia netta di un viaggio, senza
+  // integrare niente. La conferma è un viaggio con lettura prima e dopo.
+  { did: '22489E', etichetta: 'Candidato energia residua' },
   { did: '224857', etichetta: 'Tensione bus HV, zero a contattori aperti' },
   { did: '224803', etichetta: 'Tensione pacco in volt interi, riscontro di 22497C' },
   { did: '22496D', etichetta: 'Candidato SoH' },
