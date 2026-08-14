@@ -5,6 +5,80 @@ import { processSnapshot } from '@/lib/charging-detector';
 import { processTrip } from '@/lib/trip-detector';
 import { arricchisciViaggiRecenti } from '@/lib/accoppiatore';
 
+/**
+ * Restituisce un access token valido per la sessione, rinnovandolo se serve.
+ * null solo quando il refresh è fallito davvero, non per una corsa persa.
+ *
+ * Gli scheduler sono DUE (cron-job.org e GitHub Actions) e possono arrivare
+ * qui nello stesso secondo con lo stesso refresh token: Volvo lo ruota al
+ * primo uso, e il secondo tentativo brucerebbe un token già consumato — è
+ * quasi certamente com'è morto il grant la sera del 14 agosto, due ore e
+ * mezza di refresh_failed. La riga UserSession è la fonte di verità, e
+ * `session` è una copia letta all'inizio della richiesta: quindi si rilegge
+ * prima di spendere il token, e si rilegge di nuovo su un 400, perché l'altro
+ * scheduler può aver vinto la corsa mentre la nostra richiesta era in volo.
+ */
+async function rinnovaToken(session: {
+  userId: string;
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+}): Promise<string | null> {
+  if (Date.now() <= session.expiresAt * 1000 - 60_000) return session.accessToken;
+
+  const corrente = await prisma.userSession
+    .findUnique({ where: { userId: session.userId } })
+    .catch(() => null);
+  if (corrente && corrente.expiresAt !== session.expiresAt) {
+    console.log(`Refresh già fatto da un altro scheduler per ${session.userId}: adotto`);
+    return corrente.accessToken;
+  }
+
+  const daSpendere = (corrente ?? session).refreshToken;
+  const response = await fetch('https://volvoid.eu.volvocars.com/as/token.oauth2', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${Buffer.from(
+        `${process.env.VOLVO_CLIENT_ID}:${process.env.VOLVO_CLIENT_SECRET}`
+      ).toString('base64')}`,
+    },
+    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: daSpendere }),
+  });
+
+  if (response.ok) {
+    const tokens = await response.json();
+    await prisma.userSession.update({
+      where: { userId: session.userId },
+      data: {
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token ?? daSpendere,
+        expiresAt: Math.floor(Date.now() / 1000) + tokens.expires_in,
+      },
+    });
+    return tokens.access_token;
+  }
+
+  // Il 400 può essere "token consumato dall'altro scheduler mentre la nostra
+  // richiesta era in volo": se in tabella ci sono token nuovi e validi, la
+  // corsa è persa ma il giro continua con quelli.
+  const dopo = await prisma.userSession
+    .findUnique({ where: { userId: session.userId } })
+    .catch(() => null);
+  if (dopo && dopo.expiresAt !== session.expiresAt && Date.now() < dopo.expiresAt * 1000) {
+    console.log(`Refresh perso ma vinto altrove per ${session.userId}: adotto`);
+    return dopo.accessToken;
+  }
+
+  // Senza il dettaglio non si distingue un refresh token revocato da
+  // credenziali client sbagliate.
+  const detail = await response.text().catch(() => '');
+  console.error(
+    `Refresh fallito per userId ${session.userId}: HTTP ${response.status} ${detail.slice(0, 300)}`
+  );
+  return null;
+}
+
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -61,9 +135,14 @@ export async function GET(request: Request) {
 
   for (const session of sessions) {
     try {
-      // Adaptive polling: decide se saltare in base allo stato precedente
+      // Adaptive polling: decide se saltare in base allo stato precedente.
+      // Solo campioni del cron: quelli della dashboard li scrive chi sta
+      // guardando, e azzererebbero quest'orologio — con la PWA aperta il cron
+      // salterebbe ogni giro, e un guasto al refresh resterebbe invisibile
+      // proprio mentre qualcuno è lì a poterlo vedere. È successo: due ore e
+      // mezza di refresh falliti mascherate da "skipped" a ogni apertura.
       const last2 = await prisma.batterySnapshot.findMany({
-        where: { userId: session.userId, odometer: { not: null } },
+        where: { userId: session.userId, odometer: { not: null }, source: 'cron' },
         orderBy: { createdAt: 'desc' },
         take: 2,
       });
@@ -106,44 +185,12 @@ export async function GET(request: Request) {
         }
       }
 
-      let accessToken = session.accessToken;
-
-      if (Date.now() > session.expiresAt * 1000 - 60_000) {
-        const response = await fetch('https://volvoid.eu.volvocars.com/as/token.oauth2', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': `Basic ${Buffer.from(`${process.env.VOLVO_CLIENT_ID}:${process.env.VOLVO_CLIENT_SECRET}`).toString('base64')}`,
-          },
-          body: new URLSearchParams({
-            grant_type: 'refresh_token',
-            refresh_token: session.refreshToken,
-          }),
-        });
-
-        if (!response.ok) {
-          // Senza il dettaglio non si distingue un refresh token revocato da
-          // credenziali client sbagliate, e senza la riga in results il
-          // fallimento sparirebbe dalla response.
-          const detail = await response.text().catch(() => '');
-          console.error(
-            `Refresh fallito per userId ${session.userId}: HTTP ${response.status} ${detail.slice(0, 300)}`
-          );
-          results.push({ userId: session.userId, status: 'refresh_failed' });
-          continue;
-        }
-
-        const tokens = await response.json();
-        accessToken = tokens.access_token;
-
-        await prisma.userSession.update({
-          where: { userId: session.userId },
-          data: {
-            accessToken: tokens.access_token,
-            refreshToken: tokens.refresh_token ?? session.refreshToken,
-            expiresAt: Math.floor(Date.now() / 1000) + tokens.expires_in,
-          },
-        });
+      // Il token si rinnova attraverso rinnovaToken, che conosce la corsa fra
+      // i due scheduler. null significa refresh davvero fallito.
+      const accessToken = await rinnovaToken(session);
+      if (accessToken === null) {
+        results.push({ userId: session.userId, status: 'refresh_failed' });
+        continue;
       }
 
       // Recupera tutti i dati in parallelo. L'odometro fallisce a null, non a 0:
