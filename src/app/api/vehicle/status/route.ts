@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { processSnapshot } from '@/lib/charging-detector';
 import { processTrip } from '@/lib/trip-detector';
-import { prisma } from '@/lib/prisma';
 import { getVin, getRechargeStatus, getEngineStatus, getOdometer } from '@/lib/volvo-api';
 
 export async function GET() {
@@ -45,23 +44,16 @@ export async function GET() {
       }
     }
 
-    // Aggiorna i token nella UserSession ad ogni polling
-    // così il cron job ha sempre token freschi
-    await prisma.userSession.upsert({
-      where: { userId },
-      update: {
-        accessToken: session.accessToken,
-        refreshToken: (session as any).refreshToken ?? '',
-        expiresAt: (session as any).expiresAt ?? 0,
-        lastSeen: new Date(),
-      },
-      create: {
-        userId,
-        accessToken: session.accessToken,
-        refreshToken: (session as any).refreshToken ?? '',
-        expiresAt: (session as any).expiresAt ?? 0,
-      },
-    }).catch(err => console.error('Errore UserSession update:', err));
+    // Qui c'era un upsert che ricopiava i token del JWT in UserSession "così il
+    // cron ha sempre token freschi". Faceva il contrario: il JWT è una copia,
+    // e UserSession la fonte di verità che il cron rinnova per conto suo. Volvo
+    // ruota il refresh token a ogni rinnovo, quindi ricopiare la copia sopra
+    // l'originale può sovrascrivere un token vivo con uno già consumato — e al
+    // giro dopo il cron fallisce il refresh finché non si rifà il login. È la
+    // catena del blackout del 13 agosto: Sonda OBD aperta in dashboard, upsert
+    // col JWT stantio, refresh_failed, 503, scheduler disabilitato, 17 ore di
+    // buco. La sincronizzazione vera la fa già il callback jwt in auth.ts, che
+    // scrive solo quando produce token nuovi.
 
     return NextResponse.json({
       vin,
