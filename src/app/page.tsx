@@ -20,6 +20,7 @@ import SettingsPage from '@/components/dashboard/SettingsPage';
 import MonthlyHistory from '@/components/dashboard/MonthlyHistory';
 import TripHistory from '@/components/dashboard/TripHistory';
 import RaccoltaFerma from '@/components/dashboard/RaccoltaFerma';
+import SondaBuongiorno from '@/components/dashboard/SondaBuongiorno';
 
 type Page = 'dashboard' | 'stats' | 'location' | 'charging' | 'trips' | 'settings';
 
@@ -58,7 +59,20 @@ useEffect(() => {
 
   const renderContent = () => {
     if (isLoading) return <LoadingSpinner />;
-    if (error) return <ErrorCard message={error} />;
+    // Il guasto del cloud non deve far sparire ciò che il cloud non serve: la
+    // sonda del buongiorno legge solo il database, e resta visibile.
+    if (error) {
+      return page === 'dashboard' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="md:col-span-2 xl:col-span-1">
+            <ErrorCard message={error} />
+          </div>
+          <SondaBuongiorno />
+        </div>
+      ) : (
+        <ErrorCard message={error} />
+      );
+    }
 
     if (page === 'dashboard' && status) {
       return (
@@ -66,6 +80,10 @@ useEffect(() => {
           <div className="md:col-span-2 xl:col-span-1">
             <BatteryCard battery={status.battery} />
           </div>
+          {/* Si nasconde da sola finché non esiste almeno una mattina in
+              archivio; le classi di griglia stanno sulla sua radice, così
+              quando ritorna null non resta una cella vuota. */}
+          <SondaBuongiorno />
           {stats && (
             <div className="xl:col-span-1">
               <StatsCard stats={stats} />

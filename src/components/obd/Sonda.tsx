@@ -1,11 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { Radar, AlertTriangle } from 'lucide-react';
 import { CENTRALINE, sondaCentralina, type Lettura, type Centralina } from '@/lib/volvo-uds';
+import { sottoscriviOccupazione, leggiOccupazione, occupaCanale } from '@/lib/occupazione-canale';
 import type { Canale } from '@/lib/elm327';
 
 export default function Sonda({ canale }: { canale: Canale | null }) {
+  const occupazione = useSyncExternalStore(sottoscriviOccupazione, leggiOccupazione, () => null);
   const [inCorso, setInCorso] = useState<string | null>(null);
   const [risultati, setRisultati] = useState<{ centralina: Centralina; letture: Lettura[] } | null>(null);
   const [passo, setPasso] = useState<string>('');
@@ -13,6 +15,7 @@ export default function Sonda({ canale }: { canale: Canale | null }) {
   const avvia = async (c: Centralina) => {
     if (!canale) return;
     setInCorso(c.ecu);
+    occupaCanale('sonda');
     setRisultati(null);
     try {
       const letture = await sondaCentralina(canale.invia, c, setPasso);
@@ -21,6 +24,7 @@ export default function Sonda({ canale }: { canale: Canale | null }) {
       setPasso(`Errore: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setInCorso(null);
+      occupaCanale(null);
     }
   };
 
@@ -44,7 +48,7 @@ export default function Sonda({ canale }: { canale: Canale | null }) {
           <button
             key={c.ecu}
             onClick={() => avvia(c)}
-            disabled={!canale || inCorso !== null}
+            disabled={!canale || inCorso !== null || (occupazione !== null && occupazione !== 'sonda')}
             className="text-left rounded-lg bg-gray-900/60 border border-gray-700/50 p-2.5 hover:border-purple-500/40 transition-all disabled:opacity-40"
           >
             <p className="text-xs text-white font-medium">{c.nome}</p>

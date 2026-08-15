@@ -145,7 +145,7 @@ function interpreta(b: number[]): { formula: string; valore: number }[] {
  * settimo in poi mai — il canale ha bisogno di un colpo per assestarsi dopo i
  * sei comandi AT, e senza retry quel colpo se lo prende sempre lo stesso DID.
  */
-async function leggiDid(
+export async function leggiDid(
   invia: (comando: string) => Promise<string>,
   did: string
 ): Promise<string> {
@@ -214,6 +214,16 @@ export const DID_DA_REGISTRARE: {
   converti?: (b: number[]) => number | null;
 }[] = [
   {
+    // Prima della lista di proposito: la lettura sveglia le centraline, che
+    // caricano la 12V man mano che si accendono. Il primo valore dopo il
+    // risveglio è quello buono (bussola §5.1), e il retry sul primo DID
+    // protegge dal colpo a vuoto del canale appena preparato.
+    did: '22F442',
+    etichetta: 'Batteria 12V',
+    campo: 'batt12vVoltage',
+    converti: b => (b.length >= 2 ? (b[0] * 256 + b[1]) / 1000 : null),
+  },
+  {
     did: '22497C',
     etichetta: 'Tensione pacco',
     campo: 'packVoltage',
@@ -232,12 +242,6 @@ export const DID_DA_REGISTRARE: {
     etichetta: 'Liquido uscita',
     campo: 'coolantOutletC',
     converti: b => (b.length >= 2 ? (b[0] * 256 + b[1]) / 10 : null),
-  },
-  {
-    did: '22F442',
-    etichetta: 'Batteria 12V',
-    campo: 'batt12vVoltage',
-    converti: b => (b.length >= 2 ? (b[0] * 256 + b[1]) / 1000 : null),
   },
   // Da qui in poi solo grezzi: la scala non è confermata
   //

@@ -4,9 +4,10 @@ import { useState, useRef, useEffect, useCallback, useSyncExternalStore } from '
 import { Play, Square, KeyRound, Upload } from 'lucide-react';
 import { PID_SUPPORTATI, leggiCampione, type Campione } from '@/lib/obd-pids';
 import { leggiDidVolvo } from '@/lib/volvo-uds';
+import { sottoscriviToken, leggiToken, scriviToken } from '@/lib/token-dispositivo';
+import { sottoscriviOccupazione, leggiOccupazione, occupaCanale } from '@/lib/occupazione-canale';
 import type { Canale } from '@/lib/elm327';
 
-const CHIAVE_TOKEN = 'lagom-obd-token';
 const INTERVALLO_MS = 2000;
 const CAMPIONI_PER_INVIO = 15;
 
@@ -15,24 +16,11 @@ const CAMPIONI_PER_INVIO = 15;
 // alle due grandezze che cambiano di continuo, carica e velocità.
 const GIRI_PER_LETTURA_LENTA = 15;
 
-// Il token vive in localStorage e non in React: useSyncExternalStore è il modo
-// previsto per leggerlo senza disallineare l'idratazione, e senza impostare
-// stato dentro un effetto.
-const ascoltatori = new Set<() => void>();
-const sottoscrivi = (fn: () => void) => {
-  ascoltatori.add(fn);
-  return () => { ascoltatori.delete(fn); };
-};
-const leggiToken = () => localStorage.getItem(CHIAVE_TOKEN) ?? '';
-const scriviToken = (valore: string) => {
-  localStorage.setItem(CHIAVE_TOKEN, valore);
-  ascoltatori.forEach(fn => fn());
-};
-
 type Conteggi = { inviati: number; duplicati: number; scartati: number; letti: number };
 
 export default function Registratore({ canale }: { canale: Canale | null }) {
-  const token = useSyncExternalStore(sottoscrivi, leggiToken, () => '');
+  const token = useSyncExternalStore(sottoscriviToken, leggiToken, () => '');
+  const occupazione = useSyncExternalStore(sottoscriviOccupazione, leggiOccupazione, () => null);
   const [attivo, setAttivo] = useState(false);
   const [ultimo, setUltimo] = useState<Campione | null>(null);
   const [conteggi, setConteggi] = useState<Conteggi>({ inviati: 0, duplicati: 0, scartati: 0, letti: 0 });
@@ -100,6 +88,7 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
     if (!canale) return;
     setAttivo(true);
     attivoRef.current = true;
+    occupaCanale('registratore');
 
     // Senza schermo acceso il browser sospende il ciclo e la registrazione si ferma
     try {
@@ -145,12 +134,13 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
   const ferma = async () => {
     attivoRef.current = false;
     setAttivo(false);
+    occupaCanale(null);
     await svuota();
     wakeLockRef.current?.release().catch(() => {});
     wakeLockRef.current = null;
   };
 
-  useEffect(() => () => { attivoRef.current = false; }, []);
+  useEffect(() => () => { attivoRef.current = false; occupaCanale(null); }, []);
 
   return (
     <div className="rounded-xl border border-gray-700/50 bg-gray-800/50 p-4 flex flex-col gap-4">
@@ -184,7 +174,7 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
 
       <button
         onClick={attivo ? ferma : avvia}
-        disabled={!canale || !token}
+        disabled={!canale || !token || (occupazione !== null && occupazione !== 'registratore')}
         className={`flex items-center justify-center gap-2 w-full p-3 rounded-xl font-semibold text-sm transition-all disabled:opacity-40 ${
           attivo ? 'bg-red-600 hover:bg-red-500' : 'bg-emerald-600 hover:bg-emerald-500'
         } text-white`}

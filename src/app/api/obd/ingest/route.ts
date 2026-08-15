@@ -110,12 +110,16 @@ export async function POST(request: Request) {
     // I payload grezzi dei DID Volvo: mappa DID -> esadecimale. Si accettano
     // solo chiavi e valori esadecimali di lunghezza ragionevole, così un client
     // difettoso non può riempire la colonna di testo arbitrario.
+    //
+    // La chiave può essere il solo DID (BECM, per continuità con lo storico) o
+    // ECU+DID concatenati (es. D01A01224028): 224028 esiste su due centraline
+    // e sono grandezze diverse — senza il prefisso una schiaccerebbe l'altra.
     let didRaw: Record<string, string> | undefined;
     const grezzi = s.didRaw;
     if (grezzi && typeof grezzi === 'object' && !Array.isArray(grezzi)) {
       const voci = Object.entries(grezzi as Record<string, unknown>)
         .filter(([k, v]) =>
-          /^[0-9A-Fa-f]{4,8}$/.test(k) && typeof v === 'string' && /^[0-9A-Fa-f]{2,64}$/.test(v))
+          /^[0-9A-Fa-f]{4,14}$/.test(k) && typeof v === 'string' && /^[0-9A-Fa-f]{2,64}$/.test(v))
         .slice(0, 40);
       if (voci.length) didRaw = Object.fromEntries(voci) as Record<string, string>;
     }
