@@ -241,15 +241,14 @@ export const DID_DA_REGISTRARE: {
   },
   // Da qui in poi solo grezzi: la scala non è confermata
   //
-  // 22489E letto come joule dà, ad auto riposata, un valore che due mattine di
-  // fila combacia con carica × ~70 kWh. Ma il test del viaggio l'ha bocciato
-  // come contachilometri dell'energia: su due tratte da ~50 km è sceso di 1.0
-  // e 2.3 kWh contro i 4 e 10 stimati dal cloud — un fattore ~4 — e nelle due
-  // ore di sosta fra i viaggi è RISALITO di 0.44. Scende con continuità in
-  // marcia e si ricalibra verso l'alto a riposo: si comporta da stima lenta
-  // del BMS, non da contatore. Se vale qualcosa, vale da fermo ad auto
-  // riposata; il verdetto è la lettura a riposo a una carica molto diversa.
-  { did: '22489E', etichetta: 'Candidato energia residua' },
+  // 22489E, BOCCIATO come energia residua (15 ago 2026). L'ipotesi "joule
+  // rimanenti" reggeva al 74-75% (combaciava con carica × ~70 kWh) ma è morta
+  // due volte: sul viaggio (cala di ~¼ del dovuto in marcia, risale a riposo)
+  // e sulla lettura a riposo al 53%, dove doveva dire ~37 kWh e ha detto 48.95.
+  // Su 21 punti di carica si muove di ~3: non è proporzionale a niente di
+  // ovvio. Resta registrato perché si muove e perché le bocciature sono
+  // conoscenza pagata — ma nessuna superficie deve interpretarlo.
+  { did: '22489E', etichetta: 'Bocciato come energia residua, natura ignota' },
   { did: '224857', etichetta: 'Tensione bus HV, zero a contattori aperti' },
   { did: '224803', etichetta: 'Tensione pacco in volt interi, riscontro di 22497C' },
   { did: '22496D', etichetta: 'Candidato SoH' },
