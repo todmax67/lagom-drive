@@ -13,6 +13,7 @@ interface ChargingSession {
   chargingType: string;
   totalCost: number | null;
   costPerKwh: number | null;
+  wallKwh: number | null;
   location: string | null;
   isComplete: boolean;
 }
@@ -45,15 +46,23 @@ function SessionCard({
   const [editing, setEditing] = useState(false);
   const [costPerKwh, setCostPerKwh] = useState(session.costPerKwh?.toString() ?? '');
   const [location, setLocation] = useState(session.location ?? '');
+  const [wallKwh, setWallKwh] = useState(session.wallKwh?.toString() ?? '');
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
     setSaving(true);
     try {
       const newCostPerKwh = parseFloat(costPerKwh) || 0;
-      const newTotalCost = session.energyAdded
-        ? session.energyAdded * newCostPerKwh
-        : 0;
+      const newWallKwh = parseFloat(wallKwh);
+      const wall = Number.isFinite(newWallKwh) && newWallKwh > 0 ? newWallKwh : null;
+      // La correzione della base di costo (bussola §4.3): la tariffa si paga
+      // lato MURO, non lato pacco. Col contatore si fattura il pagato; senza,
+      // resta il vecchio calcolo lato pacco, ottimista delle perdite AC.
+      const newTotalCost = wall
+        ? wall * newCostPerKwh
+        : session.energyAdded
+          ? session.energyAdded * newCostPerKwh
+          : 0;
 
       const res = await fetch(`/api/charging/sessions/${session.id}`, {
         method: 'PATCH',
@@ -62,6 +71,7 @@ function SessionCard({
           costPerKwh: newCostPerKwh,
           totalCost: newTotalCost,
           location,
+          wallKwh: wall,
         }),
       });
 
@@ -70,6 +80,7 @@ function SessionCard({
           costPerKwh: newCostPerKwh,
           totalCost: newTotalCost,
           location,
+          wallKwh: wall,
         });
         setEditing(false);
       }
@@ -129,12 +140,23 @@ function SessionCard({
           </p>
         </div>
         <div className="rounded-lg bg-gray-800/60 p-2.5">
-          <p className="text-xs text-gray-500 mb-1">Energia</p>
-          <p className="text-sm text-white font-light">
-            {session.energyAdded != null
-              ? `${session.energyAdded.toFixed(1)} kWh`
-              : '...'}
+          <p className="text-xs text-gray-500 mb-1">
+            Energia{session.wallKwh != null && ' · muro'}
           </p>
+          <p className="text-sm text-white font-light">
+            {session.wallKwh != null
+              ? `${session.wallKwh.toFixed(1)} kWh`
+              : session.energyAdded != null
+                ? `${session.energyAdded.toFixed(1)} kWh`
+                : '...'}
+          </p>
+          {/* Efficienza = entrati/pagati. Dedotto su misurato: la barra
+              d'errore vera arriverà con la capacità calibrata. */}
+          {session.wallKwh != null && session.energyAdded != null && (
+            <p className="text-xs text-gray-500 mt-0.5">
+              pacco {session.energyAdded.toFixed(1)} · η {Math.round((session.energyAdded / session.wallKwh) * 100)}%
+            </p>
+          )}
         </div>
         <div className="rounded-lg bg-gray-800/60 p-2.5">
           <p className="text-xs text-gray-500 mb-1">Durata</p>
@@ -159,11 +181,23 @@ function SessionCard({
                 className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                 placeholder="es. 0.45"
               />
-              {session.energyAdded && costPerKwh && (
+              {(parseFloat(wallKwh) > 0 || session.energyAdded) && costPerKwh && (
                 <p className="text-xs text-gray-500">
-                  Totale: €{(session.energyAdded * parseFloat(costPerKwh || '0')).toFixed(2)}
+                  Totale: €{((parseFloat(wallKwh) > 0 ? parseFloat(wallKwh) : session.energyAdded ?? 0) * parseFloat(costPerKwh || '0')).toFixed(2)}
                 </p>
               )}
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500">Contatore a muro (kWh)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={wallKwh}
+                onChange={e => setWallKwh(e.target.value)}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                placeholder="Δ letto dal contatore, es. 19.31"
+              />
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-xs text-gray-500">Luogo</label>
