@@ -126,16 +126,45 @@ export async function GET() {
     mattina.sohGrezzo ??= grezzo(c, '22496D');
   }
 
+  // Ad auto addormentata i PID standard tacciono mentre i DID svegliano la
+  // centralina: il SoC del rituale può mancare. Il cloud campiona tutta la
+  // notte: lo snapshot più vicino all'ancora presta il livello (passo 1%),
+  // con la fonte dichiarata — il registro fra due mattine torna a calcolarsi.
+  const ancore = [...perGiorno.values()].filter(m => m.socDisplay === null);
+  const livelliCloud = new Map<string, number>();
+  if (ancore.length) {
+    for (const m of ancore) {
+      const vicino = await prisma.batterySnapshot.findFirst({
+        where: {
+          userId,
+          createdAt: {
+            gte: new Date(m.ancora.recordedAt.getTime() - 3600_000),
+            lte: new Date(m.ancora.recordedAt.getTime() + 3600_000),
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { level: true },
+      }).catch(() => null);
+      if (vicino) livelliCloud.set(m.ancora.recordedAt.toISOString(), vicino.level);
+    }
+  }
+
   const mattine = [...perGiorno.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([giorno, m]) => ({
-      giorno,
-      ora: m.ancora.recordedAt.toISOString(),
-      batt12v: m.ancora.batt12vVoltage,
-      packVoltage: m.packVoltage,
-      socDisplay: m.socDisplay,
-      sohGrezzo: m.sohGrezzo,
-    }));
+    .map(([giorno, m]) => {
+      const cloud = m.socDisplay === null
+        ? (livelliCloud.get(m.ancora.recordedAt.toISOString()) ?? null)
+        : null;
+      return {
+        giorno,
+        ora: m.ancora.recordedAt.toISOString(),
+        batt12v: m.ancora.batt12vVoltage,
+        packVoltage: m.packVoltage,
+        socDisplay: m.socDisplay ?? cloud,
+        socDaCloud: m.socDisplay === null && cloud !== null,
+        sohGrezzo: m.sohGrezzo,
+      };
+    });
 
   const oggi = new Date().toLocaleDateString('sv-SE', { timeZone: FUSO });
 

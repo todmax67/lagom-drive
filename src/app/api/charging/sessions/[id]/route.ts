@@ -12,16 +12,26 @@ export async function PATCH(
   }
 
   const { id } = await params;
+  const userId = (session as { userId?: string }).userId ?? 'unknown';
   const body = await request.json();
-  const { costPerKwh, totalCost, location, notes } = body;
+  const { costPerKwh, totalCost, location, notes, wallKwh } = body;
+
+  // I kWh dal contatore a muro: numero positivo e plausibile, o niente.
+  // null esplicito cancella (una lettura sbagliata si deve poter togliere).
+  const wallValido =
+    wallKwh === null ||
+    (typeof wallKwh === 'number' && Number.isFinite(wallKwh) && wallKwh > 0 && wallKwh < 200);
 
   const updated = await prisma.chargingSession.update({
-    where: { id },
+    // updateMany non serve: l'id è unico, ma il filtro su userId impedisce di
+    // modificare sessioni altrui indovinando l'id.
+    where: { id, userId },
     data: {
       ...(costPerKwh !== undefined && { costPerKwh }),
       ...(totalCost !== undefined && { totalCost }),
       ...(location !== undefined && { location }),
       ...(notes !== undefined && { notes }),
+      ...(wallKwh !== undefined && wallValido && { wallKwh }),
     },
   });
 

@@ -38,6 +38,11 @@ model ChargingSession {
   chargingType String
   costPerKwh   Float?
   totalCost    Float?
+  // I kWh letti dal contatore a muro: quelli PAGATI, contro energyAdded che
+  // sono gli entrati nel pacco (dedotti da ΔSoC). L'efficienza è il rapporto,
+  // e la prima coppia misurata (19.31 pagati vs 51->80%) ha già mostrato che
+  // capacità 67 ed efficienza realistica non possono essere vere insieme.
+  wallKwh      Float?
   location     String?
   notes        String?
   isComplete   Boolean   @default(false)

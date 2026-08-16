@@ -18,6 +18,7 @@ type Mattina = {
   packVoltage: number | null;
   socDisplay: number | null;
   sohGrezzo: string | null;
+  socDaCloud?: boolean;
 };
 
 type Risposta = { mattine: Mattina[]; fattaOggi: boolean; oggiNonARiposo?: boolean; capacita: number };
@@ -112,7 +113,7 @@ export default function SondaBuongiorno() {
         </div>
 
         <div className="rounded-lg bg-gray-900/60 p-2.5">
-          <p className="text-xs text-gray-500 mb-1">Carica · OBD</p>
+          <p className="text-xs text-gray-500 mb-1">Carica · {ultima.socDaCloud ? "cloud" : "OBD"}</p>
           <p className="text-sm text-white font-light">
             {ultima.socDisplay != null ? `${ultima.socDisplay.toFixed(1)} %` : 'n/d'}
           </p>

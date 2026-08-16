@@ -210,7 +210,7 @@ export async function sondaCentralina(
 export const DID_DA_REGISTRARE: {
   did: string;
   etichetta: string;
-  campo?: 'packVoltage' | 'coolantInletC' | 'coolantOutletC' | 'batt12vVoltage';
+  campo?: 'packVoltage' | 'coolantInletC' | 'coolantOutletC' | 'batt12vVoltage' | 'soh';
   converti?: (b: number[]) => number | null;
 }[] = [
   {
@@ -255,7 +255,15 @@ export const DID_DA_REGISTRARE: {
   { did: '22489E', etichetta: 'Bocciato come energia residua, natura ignota' },
   { did: '224857', etichetta: 'Tensione bus HV, zero a contattori aperti' },
   { did: '224803', etichetta: 'Tensione pacco in volt interi, riscontro di 22497C' },
-  { did: '22496D', etichetta: 'Candidato SoH' },
+  {
+    // PROMOSSO (16 ago 2026): Car Scanner mostrava "HV Battery SoH 94.36%"
+    // mentre il grezzo diceva 000024DC = 9436 — la scala /100 è confermata
+    // al centesimo da una fonte indipendente. Il testimone A ha un nome.
+    did: '22496D',
+    etichetta: 'SoH',
+    campo: 'soh',
+    converti: b => (b.length >= 2 ? ((b[b.length - 2] * 256 + b[b.length - 1]) / 100) : null),
+  },
   // Payload di tre byte, l'ultimo sempre 03. I primi due valgono 62-71 ad auto
   // sveglia e zero esatto dopo una notte ferma: si comporta come una corrente,
   // ma la scala non è ancora fissata e 0.1 A resta un'ipotesi.
