@@ -41,18 +41,40 @@ export const CENTRALINE: Centralina[] = [
   {
     ecu: 'D01630',
     nome: 'Gestione alta tensione',
-    did: ['22EE30', '22EE36', '22EE37', '22EE38', '22EE46', '22EE47', '22EE48', '22EE62', '22EE6F'],
+    did: ['22EE30', '22EE36', '22EE37', '22EE38', '22EE40', '22EE41', '22EE46', '22EE47', '22EE48', '22EE62', '22EE6F'],
   },
   {
     ecu: 'D01602',
     nome: 'Termica e climatizzazione',
-    did: ['220303', '220329', '22032B', '22032F', '220331', '22EEA6', '22EEA7', '22EEB3'],
+    did: ['220303', '220329', '22032B', '22032F', '220331', '224345', '22EEA6', '22EEA7', '22EEB3', '22EEB8'],
   },
   {
     ecu: 'D01A01',
     nome: 'Batteria 12V (CEM)',
     did: ['224028', '2240CD', '224025', '224090'],
   },
+  // Dalla cattura del 16 ago 2026: quattro centraline mai viste prima, e la
+  // formula del filtro di ricezione regge anche su di loro.
+  {
+    ecu: 'D01A11',
+    nome: 'Potenza e 12V (A11)',
+    // 22984F: potenza pacco, i valori /100 combaciano con la forbice del
+    // grafico di Car Scanner (0.95-1.35 contro 0.76-1.37 kW)
+    did: ['224345', '229843', '22984F'],
+  },
+  {
+    ecu: 'D01692',
+    nome: 'SoC reale (692)',
+    // 22985C: 1566/20 = 78.3 contro 78.07 a schermo — scala /20 da confermare
+    did: ['2249D4', '22985C', '22985E', '229861'],
+  },
+  {
+    ecu: 'D01801',
+    nome: 'Odometro (801)',
+    // 2261BB: 0182F0 = 99056 km, identico allo schermo al chilometro
+    did: ['2261BB', '22D903'],
+  },
+  { ecu: 'D01634', nome: 'Centralina 634', did: ['22EE8C', '22EE8D'] },
 ];
 
 /** Comandi di preparazione, nell'ordine in cui Car Scanner li invia. */
@@ -295,6 +317,27 @@ export async function leggiDidVolvo(invia: (c: string) => Promise<string>): Prom
       if (v.campo && v.converti) {
         const valore = v.converti(payload);
         if (valore !== null && Number.isFinite(valore)) campi[v.campo] = valore;
+      }
+    }
+
+    // I tre DID d'oro della cattura del 16 ago, su tre centraline diverse:
+    // potenza (22984F), SoC reale (22985C), odometro (2261BB). Grezzi con
+    // chiave prefissata finché il giro di prova non conferma le scale — la
+    // prova regina è la potenza che balla insieme alla velocità.
+    for (const blocco of [
+      { ecu: 'D01A11', dids: ['22984F'] },
+      { ecu: 'D01692', dids: ['22985C'] },
+      { ecu: 'D01801', dids: ['2261BB'] },
+    ]) {
+      for (const cmd of sequenzaPreparazione(blocco.ecu)) await invia(cmd).catch(() => {});
+      for (const did of blocco.dids) {
+        const risposta = await leggiDid(invia, did).catch(() => '');
+        const payload = estraiPayload(risposta, did);
+        if (payload) {
+          grezzi[`${blocco.ecu}${did}`] = payload
+            .map(b => b.toString(16).toUpperCase().padStart(2, '0'))
+            .join('');
+        }
       }
     }
   } finally {
