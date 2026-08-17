@@ -232,7 +232,7 @@ export async function sondaCentralina(
 export const DID_DA_REGISTRARE: {
   did: string;
   etichetta: string;
-  campo?: 'packVoltage' | 'coolantInletC' | 'coolantOutletC' | 'batt12vVoltage' | 'soh';
+  campo?: 'packVoltage' | 'coolantInletC' | 'coolantOutletC' | 'batt12vVoltage' | 'soh' | 'odometer';
   converti?: (b: number[]) => number | null;
 }[] = [
   {
@@ -324,10 +324,18 @@ export async function leggiDidVolvo(invia: (c: string) => Promise<string>): Prom
     // potenza (22984F), SoC reale (22985C), odometro (2261BB). Grezzi con
     // chiave prefissata finché il giro di prova non conferma le scale — la
     // prova regina è la potenza che balla insieme alla velocità.
+    // Verdetti del giro di prova (17 ago): 2261BB PROMOSSO — odometro in km,
+    // incrementa km per km e combacia col cloud al chilometro, due conferme
+    // indipendenti. 22985C BOCCIATO come SoC reale: in marcia salta su e giù
+    // (un SoC non risale), ed è la tensione di pacco ×4 — 1564/4 = 391.0 V,
+    // identico a 22497C; la coincidenza con 78.07 a schermo era ambiguità
+    // numerica a quel livello di carica. 22984F BOCCIATO come potenza di
+    // trazione: rampa monotona, nessuna correlazione con la velocità, mai
+    // negativo in frenata — probabile media ausiliaria. Entrambi restano
+    // grezzi: bocciati non significa inutili, significa non interpretabili.
     for (const blocco of [
       { ecu: 'D01A11', dids: ['22984F'] },
       { ecu: 'D01692', dids: ['22985C'] },
-      { ecu: 'D01801', dids: ['2261BB'] },
     ]) {
       for (const cmd of sequenzaPreparazione(blocco.ecu)) await invia(cmd).catch(() => {});
       for (const did of blocco.dids) {
@@ -339,6 +347,17 @@ export async function leggiDidVolvo(invia: (c: string) => Promise<string>): Prom
             .join('');
         }
       }
+    }
+
+    // L'odometro promosso: km interi, nessuna conversione
+    for (const cmd of sequenzaPreparazione('D01801')) await invia(cmd).catch(() => {});
+    const rispostaOdo = await leggiDid(invia, '2261BB').catch(() => '');
+    const payloadOdo = estraiPayload(rispostaOdo, '2261BB');
+    if (payloadOdo && payloadOdo.length >= 3) {
+      grezzi['D018012261BB'] = payloadOdo
+        .map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
+      const km = payloadOdo.reduce((a, b) => a * 256 + b, 0);
+      if (km > 0 && km < 2_000_000) campi.odometer = km;
     }
   } finally {
     for (const cmd of SEQUENZA_RIPRISTINO) await invia(cmd).catch(() => {});
