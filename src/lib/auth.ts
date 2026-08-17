@@ -166,44 +166,35 @@ export const config: NextAuthConfig = {
         return token;
       }
 
-      // Token scaduto. Attenzione: il cron rinnova gli stessi token e Volvo può
-      // ruotare il refresh_token invalidando il precedente. Se rinnovassimo con
-      // quello dentro il JWT rischieremmo di usarne uno già consumato dal cron,
-      // con conseguente logout. La riga UserSession è la fonte di verità.
+      // Token scaduto: il rinnovo passa dall'unico rinnovatore
+      // (src/lib/rinnovo-token.ts). La pretesa atomica sulla riga garantisce
+      // che cron, telefono e PC non spendano mai lo stesso refresh token in
+      // due: e' la corsa che ha gia' revocato il grant tre volte, ogni volta
+      // fra una coppia diversa di attori, buttando l'utente al login e
+      // fermando la raccolta.
       const vin = token.vin as string | null;
-      const { prisma } = await import('@/lib/prisma');
-      const stored = vin
-        ? await prisma.userSession.findUnique({ where: { userId: vin } }).catch(() => null)
-        : null;
-
-      // Il cron ha già rinnovato di recente: adottiamo i suoi token senza richiamare Volvo
-      if (stored && Date.now() < stored.expiresAt * 1000 - 60_000) {
-        return {
-          ...token,
-          accessToken: stored.accessToken,
-          refreshToken: stored.refreshToken,
-          expiresAt: stored.expiresAt,
-          error: null,
-        };
+      if (vin) {
+        const { accessTokenValido } = await import('@/lib/rinnovo-token');
+        const esito = await accessTokenValido(vin);
+        if (esito.ok) {
+          return {
+            ...token,
+            accessToken: esito.accessToken,
+            refreshToken: esito.refreshToken,
+            expiresAt: esito.expiresAt,
+            error: null,
+          };
+        }
+        // Permanente: grant morto, serve il login. Transitorio (corsa persa o
+        // rete): si lascia tutto com'e' e si ritenta alla prossima richiesta.
+        return esito.permanente ? { ...token, error: 'RefreshTokenError' } : token;
       }
 
-      console.log('Token scaduto, refreshing...');
-      const refreshed = await refreshAccessToken(stored?.refreshToken ?? (token.refreshToken as string));
+      // Senza VIN non esiste la riga condivisa: rinnovo diretto, caso raro
+      console.log('Token scaduto senza VIN, refresh diretto...');
+      const refreshed = await refreshAccessToken(token.refreshToken as string);
 
       if (refreshed.ok) {
-        // Propaghiamo i token nuovi al cron, altrimenti resterebbe con quelli vecchi
-        if (vin) {
-          await prisma.userSession.update({
-            where: { userId: vin },
-            data: {
-              accessToken: refreshed.accessToken,
-              refreshToken: refreshed.refreshToken,
-              expiresAt: refreshed.expiresAt,
-              lastSeen: new Date(),
-            },
-          }).catch(err => console.error('Errore sync UserSession:', err));
-        }
-
         return {
           ...token,
           accessToken: refreshed.accessToken,
@@ -212,16 +203,9 @@ export const config: NextAuthConfig = {
           error: null,
         };
       }
-
-      // Permanente: il refresh token è morto, serve il login. Solo qui si
-      // aziona la schermata "connessione scaduta".
       if (refreshed.permanente) {
         return { ...token, error: 'RefreshTokenError' };
       }
-
-      // Transitorio: si lascia tutto com'è e si ritenta alla prossima
-      // richiesta. Il token è scaduto e le chiamate falliranno per qualche
-      // minuto, ma l'utente resta dentro e la credenziale resta viva.
       return token;
     },
 

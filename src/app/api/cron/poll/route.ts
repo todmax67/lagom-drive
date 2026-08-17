@@ -4,79 +4,16 @@ import { getRechargeStatus, getEngineStatus, getStatistics, getOdometer } from '
 import { processSnapshot } from '@/lib/charging-detector';
 import { processTrip } from '@/lib/trip-detector';
 import { arricchisciViaggiRecenti } from '@/lib/accoppiatore';
+import { accessTokenValido } from '@/lib/rinnovo-token';
 
 /**
- * Restituisce un access token valido per la sessione, rinnovandolo se serve.
- * null solo quando il refresh è fallito davvero, non per una corsa persa.
- *
- * Gli scheduler sono DUE (cron-job.org e GitHub Actions) e possono arrivare
- * qui nello stesso secondo con lo stesso refresh token: Volvo lo ruota al
- * primo uso, e il secondo tentativo brucerebbe un token già consumato — è
- * quasi certamente com'è morto il grant la sera del 14 agosto, due ore e
- * mezza di refresh_failed. La riga UserSession è la fonte di verità, e
- * `session` è una copia letta all'inizio della richiesta: quindi si rilegge
- * prima di spendere il token, e si rilegge di nuovo su un 400, perché l'altro
- * scheduler può aver vinto la corsa mentre la nostra richiesta era in volo.
+ * Il rinnovo passa dall'unico rinnovatore (src/lib/rinnovo-token.ts): la
+ * pretesa atomica sulla riga fa sì che cron, telefono e PC non spendano mai
+ * lo stesso refresh token in due. Qui resta solo la traduzione dell'esito.
  */
-async function rinnovaToken(session: {
-  userId: string;
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: number;
-}): Promise<string | null> {
-  if (Date.now() <= session.expiresAt * 1000 - 60_000) return session.accessToken;
-
-  const corrente = await prisma.userSession
-    .findUnique({ where: { userId: session.userId } })
-    .catch(() => null);
-  if (corrente && corrente.expiresAt !== session.expiresAt) {
-    console.log(`Refresh già fatto da un altro scheduler per ${session.userId}: adotto`);
-    return corrente.accessToken;
-  }
-
-  const daSpendere = (corrente ?? session).refreshToken;
-  const response = await fetch('https://volvoid.eu.volvocars.com/as/token.oauth2', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': `Basic ${Buffer.from(
-        `${process.env.VOLVO_CLIENT_ID}:${process.env.VOLVO_CLIENT_SECRET}`
-      ).toString('base64')}`,
-    },
-    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: daSpendere }),
-  });
-
-  if (response.ok) {
-    const tokens = await response.json();
-    await prisma.userSession.update({
-      where: { userId: session.userId },
-      data: {
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token ?? daSpendere,
-        expiresAt: Math.floor(Date.now() / 1000) + tokens.expires_in,
-      },
-    });
-    return tokens.access_token;
-  }
-
-  // Il 400 può essere "token consumato dall'altro scheduler mentre la nostra
-  // richiesta era in volo": se in tabella ci sono token nuovi e validi, la
-  // corsa è persa ma il giro continua con quelli.
-  const dopo = await prisma.userSession
-    .findUnique({ where: { userId: session.userId } })
-    .catch(() => null);
-  if (dopo && dopo.expiresAt !== session.expiresAt && Date.now() < dopo.expiresAt * 1000) {
-    console.log(`Refresh perso ma vinto altrove per ${session.userId}: adotto`);
-    return dopo.accessToken;
-  }
-
-  // Senza il dettaglio non si distingue un refresh token revocato da
-  // credenziali client sbagliate.
-  const detail = await response.text().catch(() => '');
-  console.error(
-    `Refresh fallito per userId ${session.userId}: HTTP ${response.status} ${detail.slice(0, 300)}`
-  );
-  return null;
+async function rinnovaToken(session: { userId: string }): Promise<string | null> {
+  const esito = await accessTokenValido(session.userId);
+  return esito.ok ? esito.accessToken : null;
 }
 
 export async function GET(request: Request) {
