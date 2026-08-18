@@ -6,6 +6,7 @@ import { PID_SUPPORTATI, leggiCampione, type Campione } from '@/lib/obd-pids';
 import { leggiDidVolvo, preparaBECM, ripristinaStandard, leggiVI } from '@/lib/volvo-uds';
 import { sottoscriviToken, leggiToken, scriviToken } from '@/lib/token-dispositivo';
 import { sottoscriviOccupazione, leggiOccupazione, occupaCanale } from '@/lib/occupazione-canale';
+import { presidioNativoAvvia, presidioNativoFerma, nativo } from '@/lib/canale-nativo';
 import type { Canale } from '@/lib/elm327';
 
 const INTERVALLO_MS = 2000;
@@ -31,9 +32,21 @@ const ISTERESI_SOSTA_MS = 120_000;
 // PID standard): ~45 s a 1 Hz, come il "clima ogni 30-60 s" della bussola
 const GIRI_VIAGGIO_PER_LENTO = 45;
 
+// Il bus muto del presidio: giri di sosta consecutivi senza alcun valore
+// (l'auto dorme) prima di chiudere da soli — 150 giri a 2 s sono 5 minuti
+const GIRI_MUTI_PER_STOP = 150;
+
 type Conteggi = { inviati: number; duplicati: number; scartati: number; letti: number };
 
-export default function Registratore({ canale }: { canale: Canale | null }) {
+export default function Registratore({
+  canale,
+  presidio = false,
+  onAutoStop,
+}: {
+  canale: Canale | null;
+  presidio?: boolean;
+  onAutoStop?: () => void;
+}) {
   const token = useSyncExternalStore(sottoscriviToken, leggiToken, () => '');
   const occupazione = useSyncExternalStore(sottoscriviOccupazione, leggiOccupazione, () => null);
   const [attivo, setAttivo] = useState(false);
@@ -56,6 +69,10 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
   // L'identità della sessione (bussola par. 5.2): generata all'avvio, viaggia
   // con ogni lotto. È lei che permette di ricomporre i ritagli del cloud.
   const idSessioneRef = useRef<string | null>(null);
+  // La memoria del presidio: una caduta BLE breve riparte nella STESSA
+  // sessione, così la ricomposizione vede una guida sola e non due ritagli
+  // con identità diverse che non si fondono più
+  const ultimaSessioneRef = useRef<{ sid: string; quando: number } | null>(null);
   // Il contesto si promuove e basta: nato 'libero', diventa 'viaggio' alla
   // prima marcia e non torna indietro (il server applica la stessa regola)
   const contestoRef = useRef<'libero' | 'viaggio'>('libero');
@@ -210,12 +227,21 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
     // il token cambiato, esce e passa dal suo ripristino.
     if (!canale || attivoRef.current) return;
     const mioId = ++sessioneRef.current;
-    idSessioneRef.current = crypto.randomUUID();
+    const ripresa =
+      presidio &&
+      ultimaSessioneRef.current &&
+      Date.now() - ultimaSessioneRef.current.quando < 10 * 60_000
+        ? ultimaSessioneRef.current.sid
+        : null;
+    idSessioneRef.current = ripresa ?? crypto.randomUUID();
     contestoRef.current = 'libero';
     setAttivo(true);
     attivoRef.current = true;
     occupaCanale('registratore');
     avviaGps();
+    // Nel guscio: foreground service, la registrazione vive a schermo spento.
+    // Sul web è un no-op.
+    presidioNativoAvvia();
 
     // Senza schermo acceso il browser sospende il ciclo e la registrazione si ferma
     try {
@@ -224,6 +250,7 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
 
     let giro = 0;
     let giroViaggio = 0;
+    let giriMuti = 0;
     // true quando l'header del dongle è fermo sul BECM (regime viaggio):
     // uscendo dal loop VA ripristinato, o i PID standard muoiono (trappola 5.3.1)
     let headerSuBECM = false;
@@ -329,6 +356,18 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
         registra(campione, errori);
         if (bufferRef.current.length >= CAMPIONI_PER_INVIO) await svuota();
 
+        // L'auto-stop del presidio: l'auto dorme, i PID non rispondono più.
+        // Dopo cinque minuti di giri vuoti da fermo la guida è finita: la
+        // sessione si chiude e il genitore rilascia il dongle (§5.4).
+        const muto = Object.keys(campione).length <= 1;
+        if (muto && !inMovimento()) giriMuti++;
+        else giriMuti = 0;
+        if (presidio && giriMuti >= GIRI_MUTI_PER_STOP) {
+          ferma();
+          onAutoStop?.();
+          break;
+        }
+
         const trascorso = Date.now() - inizio;
         await new Promise(r => setTimeout(r, Math.max(0, INTERVALLO_MS - trascorso)));
       }
@@ -352,10 +391,16 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
     setRegime('sosta');
     occupaCanale(null);
     fermaGps();
+    // La memoria per la ripresa del presidio: se si riparte entro dieci
+    // minuti, è la stessa guida
+    if (idSessioneRef.current) {
+      ultimaSessioneRef.current = { sid: idSessioneRef.current, quando: Date.now() };
+    }
+    presidioNativoFerma();
     await svuota();
     wakeLockRef.current?.release().catch(() => {});
     wakeLockRef.current = null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [svuota]);
 
   // Il canale può sparire mentre si registra (bottone Disconnetti del
@@ -365,13 +410,29 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
     if (!canale && attivoRef.current) ferma();
   }, [canale, ferma]);
 
+  // L'avvio automatico del presidio: canale pronto e inizializzato, token
+  // presente, canale libero — si parte senza bottoni. La ripresa di sessione
+  // fa sì che una caduta BLE breve non spezzi la guida in due identità.
+  useEffect(() => {
+    if (
+      presidio &&
+      canale &&
+      token &&
+      !attivoRef.current &&
+      (occupazione === null || occupazione === 'registratore')
+    ) {
+      avvia();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presidio, canale, token, occupazione]);
+
   useEffect(() => () => {
     attivoRef.current = false;
     sessioneRef.current++;
     fermaGps();
     wakeLockRef.current?.release().catch(() => {});
     occupaCanale(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   return (
@@ -457,8 +518,9 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
       )}
 
       <p className="text-xs text-gray-500">
-        Lo schermo resta acceso durante la registrazione: una PWA non mantiene la
-        connessione Bluetooth in secondo piano, quindi l&apos;app deve restare in primo piano.
+        {nativo()
+          ? 'Guscio nativo: la registrazione continua anche a schermo spento, tenuta viva dal servizio in primo piano.'
+          : 'Lo schermo resta acceso durante la registrazione: una PWA non mantiene la connessione Bluetooth in secondo piano, quindi l’app deve restare in primo piano.'}
       </p>
     </div>
   );
