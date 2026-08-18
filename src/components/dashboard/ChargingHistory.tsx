@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Euro, Home, MapPin, Pencil, Check, X } from 'lucide-react';
+import { Activity, Euro, Home, MapPin, Pencil, Check, X } from 'lucide-react';
+import CurvaRicarica from './CurvaRicarica';
 
 interface ChargingSession {
   id: string;
@@ -48,6 +49,9 @@ function SessionCard({
   const [location, setLocation] = useState(session.location ?? '');
   const [wallKwh, setWallKwh] = useState(session.wallKwh?.toString() ?? '');
   const [saving, setSaving] = useState(false);
+  // La finestra della curva si fissa al click: per le cariche in corso il
+  // bordo destro è l'istante dell'apertura, non un "adesso" che scorre
+  const [finestraCurva, setFinestraCurva] = useState<{ da: string; a: string } | null>(null);
 
   const handleSave = async () => {
     setSaving(true);
@@ -119,6 +123,23 @@ function SessionCard({
           <span className="text-xs text-gray-400">
             {formatDate(session.startedAt)}
           </span>
+          <button
+            onClick={() =>
+              setFinestraCurva(f =>
+                f
+                  ? null
+                  : { da: session.startedAt, a: session.endedAt ?? new Date().toISOString() }
+              )
+            }
+            className={`p-1.5 rounded-lg transition-all ${
+              finestraCurva
+                ? 'text-amber-400 bg-amber-400/10'
+                : 'text-gray-400 hover:text-amber-400 hover:bg-amber-400/10'
+            }`}
+            title="Curva di ricarica"
+          >
+            <Activity size={13} />
+          </button>
           {session.isComplete && !editing && (
             <button
               onClick={() => setEditing(true)}
@@ -165,6 +186,8 @@ function SessionCard({
           </p>
         </div>
       </div>
+
+      {finestraCurva && <CurvaRicarica da={finestraCurva.da} a={finestraCurva.a} />}
 
       {/* Form modifica */}
       {editing && (

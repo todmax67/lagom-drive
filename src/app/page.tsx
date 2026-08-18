@@ -23,6 +23,7 @@ import TripHistory from '@/components/dashboard/TripHistory';
 import RaccoltaFerma from '@/components/dashboard/RaccoltaFerma';
 import SondaBuongiorno from '@/components/dashboard/SondaBuongiorno';
 import SalutePage from '@/components/dashboard/SalutePage';
+import AggregatiViaggi from '@/components/dashboard/AggregatiViaggi';
 
 // La navigazione della bussola (§4.1): cinque voci più Impostazioni.
 // Statistiche e Posizione sono riassorbite in Oggi.
@@ -126,7 +127,8 @@ useEffect(() => {
 
     if (page === 'trips') {
       return (
-        <div className="max-w-2xl">
+        <div className="max-w-2xl flex flex-col gap-4">
+          <AggregatiViaggi />
           {/* Il chip "capacità ~NN kWh" delle card misurate porta a Salute:
               è un punto del testimone C che si deposita, non una promozione */}
           <TripHistory onSalute={() => setPage('salute')} />
