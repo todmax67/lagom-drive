@@ -92,14 +92,20 @@ export async function GET() {
   // card fusa promette un punto che qui non esiste (ritagli da ΔSoC 5+6), o
   // la stessa guida pesa due volte nella serie (ritagli da 9+10). La copertura
   // si pesa sulla durata dei ritagli; il ΔSoC va dal primo all'ultimo anello.
-  const infoViaggi = new Map(
-    (
-      await prisma.trip.findMany({
-        where: { id: { in: arricchimenti.map(a => a.tripId) } },
-        select: { id: true, startedAt: true, endedAt: true },
-      })
-    ).map(t => [t.id, t])
-  );
+  // TUTTI i viaggi, non solo quelli arricchiti: servono da testimoni di
+  // contiguità — sia alla catena dei ritagli (l'anello successivo dev'essere
+  // il viaggio IMMEDIATAMENTE successivo: un ritaglio di mezzo escluso dalla
+  // query non va scavalcato, o il ΔSoC conterebbe un consumo che il netto non
+  // vede) sia alla fusione delle ricariche (una guida fra due spezzoni smente
+  // la continuità che i livelli interi possono fingere per caso).
+  const tuttiViaggi = await prisma.trip.findMany({
+    where: { userId, isComplete: true },
+    orderBy: { startedAt: 'asc' },
+    select: { id: true, startedAt: true, endedAt: true },
+  });
+  const infoViaggi = new Map(tuttiViaggi.map(t => [t.id, t]));
+  const posizione = new Map(tuttiViaggi.map((t, i) => [t.id, i]));
+
   const righe = arricchimenti
     .flatMap(a => {
       const t = infoViaggi.get(a.tripId);
@@ -116,7 +122,9 @@ export async function GET() {
       r.sessionId != null &&
       r.sessionId === prec.sessionId &&
       prec.endedAt &&
-      Math.abs(r.startedAt.getTime() - prec.endedAt.getTime()) < 3 * 60 * 1000
+      Math.abs(r.startedAt.getTime() - prec.endedAt.getTime()) < 3 * 60 * 1000 &&
+      // L'anello dev'essere il viaggio subito successivo in tabella
+      posizione.get(r.tripId) === (posizione.get(prec.tripId) ?? -2) + 1
     ) {
       catena.push(r);
     } else {
@@ -165,6 +173,10 @@ export async function GET() {
   // è la somma dei wallKwh inseriti — vale sia col totale scritto una volta
   // sola, sia coi contatori per-spezzone.
   const GAP_MAX_MS = 12 * 3600 * 1000;
+  // "Nessuna guida in mezzo" va verificato, non presunto: due ricariche
+  // distinte possono combaciare per caso sui livelli interi
+  const guidaFra = (da: Date, a: Date) =>
+    tuttiViaggi.some(t => t.startedAt >= da && t.startedAt <= a);
   const gruppi: (typeof cariche)[] = [];
   for (const c of cariche) {
     const gruppo = gruppi[gruppi.length - 1];
@@ -175,7 +187,8 @@ export async function GET() {
       prec.chargingType === c.chargingType &&
       prec.endedAt &&
       c.startedAt.getTime() >= prec.endedAt.getTime() &&
-      c.startedAt.getTime() - prec.endedAt.getTime() <= GAP_MAX_MS
+      c.startedAt.getTime() - prec.endedAt.getTime() <= GAP_MAX_MS &&
+      !guidaFra(prec.endedAt, c.startedAt)
     ) {
       gruppo.push(c);
     } else {
@@ -187,6 +200,11 @@ export async function GET() {
       const delta = g[g.length - 1].endLevel! - g[0].startLevel;
       const contatori = g.filter(c => c.wallKwh != null);
       if (contatori.length === 0 || delta < DELTA_LIVELLO_MIN_MURO) return null;
+      // Sui gruppi spezzati la convenzione è UNA lettura del contatore per
+      // l'intera ricarica, su uno spezzone qualunque. Più letture sono
+      // ambigue — per-spezzone? totale duplicato su ogni card? — e
+      // sommandole si fabbricherebbe un punto: meglio nessun punto.
+      if (g.length > 1 && contatori.length > 1) return null;
       const wall = contatori.reduce((s, c) => s + c.wallKwh!, 0);
       return { t: g[0].startedAt.toISOString(), kwh: (wall / delta) * 100 };
     })

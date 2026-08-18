@@ -123,18 +123,23 @@ function GraficoSalute({ dati, oggi }: { dati: Salute; oggi: number }) {
   const cursore = new Date(x0);
   cursore.setDate(1);
   cursore.setHours(0, 0, 0, 0);
+  // L'anno va sulla PRIMA tacca di ogni anno nuovo: col passo largo gennaio
+  // può non essere mai colpito, e l'asse attraverserebbe capodanni muti
+  let annoCorrente = new Date(x0).getFullYear();
   for (let i = 0; i < 60; i++) {
     cursore.setMonth(cursore.getMonth() + passoMesi);
     const t = cursore.getTime();
     if (t > x1) break;
-    if (t >= x0)
-      tacche.push({
-        t,
-        label:
-          cursore.getMonth() === 0
-            ? cursore.toLocaleDateString('it-IT', { month: 'short', year: '2-digit' })
-            : cursore.toLocaleDateString('it-IT', { month: 'short' }),
-      });
+    if (t < x0) continue;
+    const conAnno = cursore.getFullYear() !== annoCorrente;
+    annoCorrente = cursore.getFullYear();
+    tacche.push({
+      t,
+      label: cursore.toLocaleDateString(
+        'it-IT',
+        conAnno ? { month: 'short', year: '2-digit' } : { month: 'short' }
+      ),
+    });
   }
   if (tacche.length === 0) {
     tacche.push({ t: x0 + (x1 - x0) / 2, label: dataBreve(new Date((x0 + x1) / 2).toISOString()) });
