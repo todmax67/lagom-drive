@@ -128,11 +128,38 @@ function scegliCaratteristiche(caratteristiche: BluetoothRemoteGATTCharacteristi
   return { scrittura, lettura };
 }
 
-/** Apertura di un device già scelto: GATT, scoperta servizi, protocollo. */
+// Chrome restituisce lo STESSO oggetto BluetoothDevice a ogni richiesta: il
+// listener DOM di disconnessione si registra UNA volta per device, e a ogni
+// apertura si sostituisce il set di callback — quelli dell'apertura
+// precedente muoiono con lei, invece di accumularsi e consumare a vicenda i
+// flag di "disconnessione voluta".
+const ascoltatoriPerDevice = new WeakMap<BluetoothDevice, Set<() => void>>();
+const dispositiviConListener = new WeakSet<BluetoothDevice>();
+
+/**
+ * Apertura di un device già scelto: GATT, scoperta servizi, protocollo.
+ * `timeoutMs` serve al riaggancio del presidio: su un device fuori portata
+ * gatt.connect() resta pendente per sempre, e senza un limite il ciclo di
+ * backoff non avanzerebbe mai.
+ */
 async function apriDispositivo(
-  device: BluetoothDevice
+  device: BluetoothDevice,
+  timeoutMs?: number
 ): Promise<{ canale: Canale; servizi: ServizioScoperto[] }> {
-  const server = await device.gatt!.connect();
+  const connessione = device.gatt!.connect();
+  const server = await (timeoutMs
+    ? Promise.race([
+        connessione,
+        new Promise<never>((_, rifiuta) =>
+          setTimeout(() => {
+            // Il disconnect annulla il connect pendente: senza, risolverebbe
+            // ore dopo aprendo un canale che nessuno aspetta più
+            device.gatt?.disconnect();
+            rifiuta(new Error('Dongle fuori portata'));
+          }, timeoutMs)
+        ),
+      ])
+    : connessione);
   const tuttiIServizi = await server.getPrimaryServices();
 
   const servizi: ServizioScoperto[] = [];
@@ -186,9 +213,13 @@ async function apriDispositivo(
   });
 
   const ascoltatori = new Set<() => void>();
-  device.addEventListener('gattserverdisconnected', () => {
-    ascoltatori.forEach(cb => cb());
-  });
+  ascoltatoriPerDevice.set(device, ascoltatori);
+  if (!dispositiviConListener.has(device)) {
+    dispositiviConListener.add(device);
+    device.addEventListener('gattserverdisconnected', () => {
+      ascoltatoriPerDevice.get(device)?.forEach(cb => cb());
+    });
+  }
 
   // L'identità per il riaggancio del presidio: senza picker la prossima volta
   try {
@@ -242,7 +273,7 @@ export async function ricollega(): Promise<{ canale: Canale; servizi: ServizioSc
     if (!dispositivi.length) return null;
     const salvato = localStorage.getItem(CHIAVE_DISPOSITIVO);
     const device = dispositivi.find(d => d.id === salvato) ?? dispositivi[0];
-    return await apriDispositivo(device);
+    return await apriDispositivo(device, 8_000);
   } catch {
     return null;
   }

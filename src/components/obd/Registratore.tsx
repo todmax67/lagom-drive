@@ -78,6 +78,11 @@ export default function Registratore({
   const contestoRef = useRef<'libero' | 'viaggio'>('libero');
   const ultimoMotoRef = useRef(0);
   const sessioneRef = useRef(0);
+  // Il valore VIVO del presidio per il ciclo (che è una closure di lunga
+  // vita: il prop vi resterebbe congelato al valore dell'avvio) e la memoria
+  // dell'auto-avvio già consumato per questo canale
+  const presidioVivoRef = useRef(presidio);
+  const autoAvviatoRef = useRef(false);
   const [regime, setRegime] = useState<'sosta' | 'viaggio'>('sosta');
   const [gpsStato, setGpsStato] = useState<'ok' | 'negato' | 'assente' | null>(null);
 
@@ -362,7 +367,9 @@ export default function Registratore({
         const muto = Object.keys(campione).length <= 1;
         if (muto && !inMovimento()) giriMuti++;
         else giriMuti = 0;
-        if (presidio && giriMuti >= GIRI_MUTI_PER_STOP) {
+        // Il valore vivo, non quello congelato all'avvio: spegnere il toggle
+        // a registrazione in corso disarma anche l'auto-stop
+        if (presidioVivoRef.current && giriMuti >= GIRI_MUTI_PER_STOP) {
           ferma();
           onAutoStop?.();
           break;
@@ -410,17 +417,29 @@ export default function Registratore({
     if (!canale && attivoRef.current) ferma();
   }, [canale, ferma]);
 
-  // L'avvio automatico del presidio: canale pronto e inizializzato, token
-  // presente, canale libero — si parte senza bottoni. La ripresa di sessione
-  // fa sì che una caduta BLE breve non spezzi la guida in due identità.
+  useEffect(() => {
+    presidioVivoRef.current = presidio;
+  }, [presidio]);
+
+  // L'avvio automatico del presidio: UNA volta per canale, consumato solo
+  // quando l'avvio parte davvero. Così "Ferma registrazione" resta fermo
+  // (il cambio di occupazione non fa ripartire nulla), Buongiorno e Sonda
+  // possono prendere il canale, e un canale NUOVO — il riaggancio dopo una
+  // caduta — riparte da solo. Se alla nascita del canale il Buongiorno lo
+  // sta usando, l'avvio aspetta che l'occupazione si liberi.
+  useEffect(() => {
+    autoAvviatoRef.current = false;
+  }, [canale]);
   useEffect(() => {
     if (
       presidio &&
       canale &&
       token &&
       !attivoRef.current &&
+      !autoAvviatoRef.current &&
       (occupazione === null || occupazione === 'registratore')
     ) {
+      autoAvviatoRef.current = true;
       avvia();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

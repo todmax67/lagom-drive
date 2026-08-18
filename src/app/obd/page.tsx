@@ -16,6 +16,13 @@ const TENTATIVI_MAX = 10;
 
 export default function ObdPage() {
   const [canale, setCanale] = useState<Canale | null>(null);
+  // Lo specchio per i closure di lunga vita (backoff, listener): il loop di
+  // riaggancio deve vedere il canale VERO, non quello del render in cui è nato
+  const canaleRef = useRef<Canale | null>(null);
+  const pubblicaCanale = (c: Canale | null) => {
+    canaleRef.current = c;
+    setCanale(c);
+  };
   const [servizi, setServizi] = useState<ServizioScoperto[]>([]);
   const [righe, setRighe] = useState<Riga[]>([]);
   const [comando, setComando] = useState('0100');
@@ -52,7 +59,7 @@ export default function ObdPage() {
     }
 
     c.suDisconnessione(() => {
-      setCanale(null);
+      pubblicaCanale(null);
       if (volutoRef.current) {
         volutoRef.current = false;
         return;
@@ -63,7 +70,7 @@ export default function ObdPage() {
 
     // Il canale si pubblica DOPO l'INIT riuscito: un canale a metà
     // inizializzazione non deve finire in mano al Registratore
-    setCanale(c);
+    pubblicaCanale(c);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [log]);
 
@@ -75,8 +82,23 @@ export default function ObdPage() {
     riaggancioRef.current = true;
     try {
       for (let i = 0; i < TENTATIVI_MAX && presidioRef.current; i++) {
-        const esito = nativo() ? await collegaNativo(true) : await ricollega();
+        // Un canale già vivo (collegato a mano durante l'attesa di backoff)
+        // ferma tutto: un secondo protocollo sullo stesso filo — con l'ATZ
+        // dell'INIT in mezzo a un giro di lettura — è la trappola 5.3.1
+        if (canaleRef.current) return;
+        let esito: Awaited<ReturnType<typeof ricollega>> = null;
+        try {
+          esito = nativo() ? await collegaNativo(true) : await ricollega();
+        } catch {
+          esito = null; // il tentativo nativo può lanciare: è un giro a vuoto
+        }
         if (esito) {
+          // Ricontrollo DOPO l'attesa: se nel frattempo il presidio è stato
+          // spento o un canale manuale esiste, questo si richiude subito
+          if (!presidioRef.current || canaleRef.current) {
+            esito.canale.disconnetti();
+            return;
+          }
           try {
             await apri(esito);
             return;
@@ -87,7 +109,7 @@ export default function ObdPage() {
         }
         await new Promise(r => setTimeout(r, Math.min(30_000, 3_000 * (i + 1))));
       }
-      if (presidioRef.current) {
+      if (presidioRef.current && !canaleRef.current) {
         log('info', 'Presidio: dongle non raggiungibile. Riproverò alla prossima apertura.');
       }
     } finally {
@@ -116,10 +138,14 @@ export default function ObdPage() {
 
   const handleCollega = async () => {
     setOccupato(true);
+    let esito: Awaited<ReturnType<typeof ricollega>> = null;
     try {
-      const esito = nativo() ? await collegaNativo(false) : await collega();
+      esito = nativo() ? await collegaNativo(false) : await collega();
       if (esito) await apri(esito);
     } catch (err) {
+      // Un INIT fallito non deve lasciare un GATT zombie senza bottone
+      // Disconnetti: il canale mai pubblicato si chiude qui
+      esito?.canale.disconnetti();
       log('errore', err instanceof Error ? err.message : String(err));
     } finally {
       setOccupato(false);
@@ -131,8 +157,8 @@ export default function ObdPage() {
   // tenerlo occupato, §5.4) e il presidio resta armato per la prossima volta.
   const autoStop = () => {
     volutoRef.current = true;
-    canale?.disconnetti();
-    setCanale(null);
+    canaleRef.current?.disconnetti();
+    pubblicaCanale(null);
     log('info', 'Presidio: bus muto, sessione chiusa e dongle rilasciato.');
   };
 
@@ -205,7 +231,7 @@ export default function ObdPage() {
               onClick={() => {
                 volutoRef.current = true;
                 canale.disconnetti();
-                setCanale(null);
+                pubblicaCanale(null);
                 log('info', 'Disconnesso');
               }}
               className="px-4 py-2.5 rounded-xl bg-gray-800/80 border border-gray-700/50 text-gray-400 hover:text-white text-sm"

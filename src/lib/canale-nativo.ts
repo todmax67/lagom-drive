@@ -63,7 +63,23 @@ export async function collegaNativo(
 
   let deviceId = localStorage.getItem(CHIAVE_DISPOSITIVO);
   let nome = localStorage.getItem(CHIAVE_NOME);
+  const ascoltatori = new Set<() => void>();
+  const connetti = (id: string) =>
+    BleClient.connect(id, () => ascoltatori.forEach(cb => cb()));
 
+  if (deviceId) {
+    try {
+      await connetti(deviceId);
+    } catch (err) {
+      if (soloRiaggancio) return null;
+      // Il dongle salvato non risponde (sostituito? MAC cambiato?): la
+      // chiave non deve murare il picker per sempre
+      localStorage.removeItem(CHIAVE_DISPOSITIVO);
+      localStorage.removeItem(CHIAVE_NOME);
+      deviceId = null;
+      nome = null;
+    }
+  }
   if (!deviceId) {
     if (soloRiaggancio) return null;
     const dispositivo = await BleClient.requestDevice({
@@ -71,16 +87,7 @@ export async function collegaNativo(
     });
     deviceId = dispositivo.deviceId;
     nome = dispositivo.name ?? null;
-    localStorage.setItem(CHIAVE_DISPOSITIVO, deviceId);
-    if (nome) localStorage.setItem(CHIAVE_NOME, nome);
-  }
-
-  const ascoltatori = new Set<() => void>();
-  try {
-    await BleClient.connect(deviceId, () => ascoltatori.forEach(cb => cb()));
-  } catch (err) {
-    if (soloRiaggancio) return null;
-    throw err;
+    await connetti(deviceId);
   }
 
   // Stessa regola del connettore web: scrittura e lettura si riconoscono
@@ -122,6 +129,11 @@ export async function collegaNativo(
         'il dispositivo scelto non sembra un dongle ELM327.'
     );
   }
+
+  // L'identità si salva solo ORA, a dongle verificato: una scelta sbagliata
+  // al picker (le cuffie) non deve avvelenare la chiave del riaggancio
+  localStorage.setItem(CHIAVE_DISPOSITIVO, deviceId);
+  if (nome) localStorage.setItem(CHIAVE_NOME, nome);
 
   const protocollo = creaProtocollo(async dati => {
     const vista = new DataView(dati.buffer, dati.byteOffset, dati.byteLength);
