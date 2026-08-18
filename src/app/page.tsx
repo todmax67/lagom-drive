@@ -156,7 +156,9 @@ useEffect(() => {
     if (page === 'trips') {
       return (
         <div className="max-w-2xl">
-          <TripHistory />
+          {/* Il chip "capacità ~NN kWh" delle card misurate porta a Salute:
+              è un punto del testimone C che si deposita, non una promozione */}
+          <TripHistory onSalute={() => setPage('salute')} />
         </div>
       );
     }
