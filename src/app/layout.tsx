@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import Providers from '@/components/providers';
+import PonteNativo from '@/components/PonteNativo';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -32,7 +33,11 @@ export default function RootLayout({
     <html lang="it">
       {/* favicon e apple-touch-icon vengono da app/icon.svg e app/apple-icon.png */}
       <body className={`${inter.className} bg-gray-900 text-white`}>
-        <Providers>{children}</Providers>
+        <Providers>
+          {/* Solo nel guscio: ascolta il deep link del ponte di sessione */}
+          <PonteNativo />
+          {children}
+        </Providers>
       </body>
     </html>
   );

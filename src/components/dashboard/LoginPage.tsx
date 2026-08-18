@@ -1,6 +1,33 @@
+'use client';
+
 import { signIn } from 'next-auth/react';
 import Image from 'next/image';
-import { LogIn } from 'lucide-react';
+import { LogIn, ExternalLink } from 'lucide-react';
+import { nativo } from '@/lib/canale-nativo';
+
+// Nel guscio il login diretto non passa: Volvo ID rifiuta i browser
+// incorporati (errore 14, visto sul campo). La strada è il ponte: login nel
+// browser di sistema, rientro col codice monouso via deep link.
+//
+// Il codice è LEGATO a un segreto che nasce qui e non lascia mai il guscio
+// (schema PKCE): lo scheme lagomdrive:// non ha verifica di proprietà, e
+// un'app coinstallata che intercettasse il deep link avrebbe in mano un
+// codice inservibile senza il verificatore.
+const base64url = (byte: Uint8Array) =>
+  btoa(String.fromCharCode(...byte))
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replace(/=+$/, '');
+
+const apriPonte = async () => {
+  const verificatore = base64url(crypto.getRandomValues(new Uint8Array(32)));
+  localStorage.setItem('ponte-verificatore', verificatore);
+  const sfida = base64url(
+    new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verificatore)))
+  );
+  const { Browser } = await import('@capacitor/browser');
+  await Browser.open({ url: `https://lagom-drive.vercel.app/ponte/avvia?sfida=${sfida}` });
+};
 
 export default function LoginPage({ notice }: { notice?: string }) {
   return (
@@ -37,13 +64,30 @@ export default function LoginPage({ notice }: { notice?: string }) {
             </p>
           </div>
 
-          <button
-            onClick={() => signIn('volvo')}
-            className="flex items-center justify-center gap-3 w-full p-4 rounded-xl font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-all duration-200 hover:scale-[1.02] shadow-lg shadow-blue-500/20"
-          >
-            <LogIn size={18} />
-            Login con Volvo ID
-          </button>
+          {nativo() ? (
+            <>
+              <button
+                onClick={apriPonte}
+                className="flex items-center justify-center gap-3 w-full p-4 rounded-xl font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-all duration-200 hover:scale-[1.02] shadow-lg shadow-blue-500/20"
+              >
+                <ExternalLink size={18} />
+                Accedi col browser sicuro
+              </button>
+              <p className="text-xs text-gray-500">
+                Volvo ID non accetta il login dentro l&apos;app: si apre il
+                browser, fai il login lì, e un tocco ti riporta qui con la
+                sessione.
+              </p>
+            </>
+          ) : (
+            <button
+              onClick={() => signIn('volvo')}
+              className="flex items-center justify-center gap-3 w-full p-4 rounded-xl font-semibold bg-blue-600 hover:bg-blue-500 text-white transition-all duration-200 hover:scale-[1.02] shadow-lg shadow-blue-500/20"
+            >
+              <LogIn size={18} />
+              Login con Volvo ID
+            </button>
+          )}
         </div>
       </div>
     </div>

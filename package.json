@@ -10,6 +10,10 @@
     "migrate:deploy": "prisma migrate deploy"
   },
   "dependencies": {
+    "@capacitor-community/bluetooth-le": "^8.3.0",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/browser": "^8.0.4",
+    "@capacitor/core": "^8.5.0",
     "@neondatabase/serverless": "^1.0.2",
     "@prisma/client": "^5.22.0",
     "lucide-react": "^0.577.0",
