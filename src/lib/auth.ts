@@ -214,6 +214,12 @@ export const config: NextAuthConfig = {
       (session as any).userId = (token as any).vin ?? token.sub;
       (session as any).refreshToken = token.refreshToken; // ← aggiungi
       (session as any).expiresAt = token.expiresAt;       // ← aggiungi
+      // Il ponte ha bisogno dei due pezzi SEPARATI: fondere vin e sub in
+      // userId avvelenerebbe l'auto-guarigione — un token coniato con
+      // vin=sub (truthy ma sbagliato) non passerebbe mai dalla guardia
+      // "!token.vin" e resterebbe chiavato sul sub per novanta giorni
+      (session as any).vin = (token as any).vin ?? null;
+      (session as any).sub = token.sub ?? null;
       if (token.error) {
         (session as any).error = token.error;
       }

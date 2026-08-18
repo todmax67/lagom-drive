@@ -8,9 +8,25 @@ import { nativo } from '@/lib/canale-nativo';
 // Nel guscio il login diretto non passa: Volvo ID rifiuta i browser
 // incorporati (errore 14, visto sul campo). La strada è il ponte: login nel
 // browser di sistema, rientro col codice monouso via deep link.
+//
+// Il codice è LEGATO a un segreto che nasce qui e non lascia mai il guscio
+// (schema PKCE): lo scheme lagomdrive:// non ha verifica di proprietà, e
+// un'app coinstallata che intercettasse il deep link avrebbe in mano un
+// codice inservibile senza il verificatore.
+const base64url = (byte: Uint8Array) =>
+  btoa(String.fromCharCode(...byte))
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replace(/=+$/, '');
+
 const apriPonte = async () => {
+  const verificatore = base64url(crypto.getRandomValues(new Uint8Array(32)));
+  localStorage.setItem('ponte-verificatore', verificatore);
+  const sfida = base64url(
+    new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verificatore)))
+  );
   const { Browser } = await import('@capacitor/browser');
-  await Browser.open({ url: 'https://lagom-drive.vercel.app/ponte/avvia' });
+  await Browser.open({ url: `https://lagom-drive.vercel.app/ponte/avvia?sfida=${sfida}` });
 };
 
 export default function LoginPage({ notice }: { notice?: string }) {

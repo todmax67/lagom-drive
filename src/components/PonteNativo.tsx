@@ -16,7 +16,13 @@ export default function PonteNativo() {
     import('@capacitor/app').then(({ App }) => {
       App.addListener('appUrlOpen', ({ url }) => {
         const m = url.match(/codice=([\w-]+)/);
-        if (m) window.location.href = `/api/ponte/riscatta?codice=${m[1]}`;
+        if (m) {
+          // Il verificatore non ha mai lasciato il guscio: solo la coppia
+          // codice+verificatore riscatta la sessione (PKCE)
+          const verificatore = localStorage.getItem('ponte-verificatore') ?? '';
+          window.location.href =
+            `/api/ponte/riscatta?codice=${m[1]}&verificatore=${encodeURIComponent(verificatore)}`;
+        }
       }).then(h => {
         rimuovi = () => h.remove();
       });

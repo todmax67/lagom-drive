@@ -12,13 +12,25 @@ import { ArrowRight, AlertTriangle } from 'lucide-react';
  */
 
 function Ponte() {
-  const esito = useSearchParams().get('esito');
+  const params = useSearchParams();
+  const esito = params.get('esito');
+  // La sfida PKCE del guscio: senza, il codice non nasce — un codice non
+  // legato a un verificatore sarebbe rubabile via deep link intercettato
+  const sfida = params.get('sfida');
   const [codice, setCodice] = useState<string | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
 
   useEffect(() => {
     if (esito === 'scaduto') return;
-    fetch('/api/ponte/crea', { method: 'POST' })
+    if (!sfida) {
+      setErrore('Manca la sfida del guscio: rifai il passaggio dall’app.');
+      return;
+    }
+    fetch('/api/ponte/crea', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sfida }),
+    })
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
       .then(d => setCodice(d.codice))
       .catch(e =>
@@ -28,7 +40,7 @@ function Ponte() {
             : 'Il codice non è arrivato: riprova.'
         )
       );
-  }, [esito]);
+  }, [esito, sfida]);
 
   return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
