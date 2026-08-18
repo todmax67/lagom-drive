@@ -239,16 +239,23 @@ function GraficoPotenza({ profilo }: { profilo: Profilo }) {
   const maxNeg = Math.max(...secchi.map(s => -s.neg), 0.5);
   const quotaPos = Math.min(0.85, Math.max(0.5, maxPos / (maxPos + maxNeg)));
   const base = Math.round(H * quotaPos);
-  const x = (i: number) => (i * W) / (n - 1);
   const yPos = (v: number) => base - (v / maxPos) * (base - 4);
   const yNeg = (v: number) => base + ((-v) / maxNeg) * (H - base - 4);
 
-  const puntiPos = secchi
-    .map((s, i) => `L${x(i).toFixed(1)},${(s.dati ? yPos(s.pos) : base).toFixed(1)}`)
-    .join(' ');
-  const puntiNeg = secchi
-    .map((s, i) => `L${x(i).toFixed(1)},${(s.dati ? yNeg(s.neg) : base).toFixed(1)}`)
-    .join(' ');
+  // A gradini, non a pendii: ogni secchio è un blocco a livello costante con
+  // fronti verticali fra un secchio e l'altro — i passaggi trazione/recupero
+  // restano netti invece di sciogliersi in triangoli. Il passo è il bordo del
+  // secchio, così anche le bande grigie combaciano coi blocchi.
+  const passo = W / n;
+  const gradini = (livello: (s: { pos: number; neg: number; dati: boolean }) => number) =>
+    secchi
+      .map((s, i) => {
+        const y = (s.dati ? livello(s) : base).toFixed(1);
+        return `L${(i * passo).toFixed(1)},${y} L${((i + 1) * passo).toFixed(1)},${y}`;
+      })
+      .join(' ');
+  const puntiPos = gradini(s => yPos(s.pos));
+  const puntiNeg = gradini(s => yNeg(s.neg));
 
   // Le bande grigie: sequenze di secchi senza dati
   const bande: { da: number; a: number }[] = [];
@@ -257,7 +264,6 @@ function GraficoPotenza({ profilo }: { profilo: Profilo }) {
     if (bande.length && bande[bande.length - 1].a === i - 1) bande[bande.length - 1].a = i;
     else bande.push({ da: i, a: i });
   }
-  const mezzoPasso = W / (2 * (n - 1));
 
   // Sotto i 45 s il "senza dati" è residuo di bordo, non un buco da legenda;
   // sopra, si dichiara al minuto col segno di approssimazione — mai troncando
@@ -286,9 +292,9 @@ function GraficoPotenza({ profilo }: { profilo: Profilo }) {
         {bande.map((b, i) => (
           <rect
             key={i}
-            x={Math.max(0, x(b.da) - mezzoPasso).toFixed(1)}
+            x={(b.da * passo).toFixed(1)}
             y={0}
-            width={(Math.min(W, x(b.a) + mezzoPasso) - Math.max(0, x(b.da) - mezzoPasso)).toFixed(1)}
+            width={((b.a - b.da + 1) * passo).toFixed(1)}
             height={H}
             fill="rgb(107 114 128 / 0.25)"
           />
