@@ -378,3 +378,47 @@ export async function leggiDidVolvo(invia: (c: string) => Promise<string>): Prom
 
   return { campi, grezzi };
 }
+
+/**
+ * Il regime viaggio (bussola §5.1): corrente e tensione abitano sulla stessa
+ * centralina, quindi l'header si prepara UNA volta e la coppia si legge in
+ * loop a ~1 Hz senza ripagare i sei comandi. Chi usa questo blocco deve
+ * ricordarsi il ripristino quando esce: la trappola 5.3.1 vale anche qui.
+ */
+export const DID_CORRENTE = '224802';
+export const DID_TENSIONE = '22497C';
+
+export async function preparaBECM(invia: (c: string) => Promise<string>): Promise<void> {
+  for (const cmd of sequenzaPreparazione(CENTRALINA_BATTERIA.ecu)) {
+    await invia(cmd).catch(() => {});
+  }
+}
+
+export async function ripristinaStandard(invia: (c: string) => Promise<string>): Promise<void> {
+  for (const cmd of SEQUENZA_RIPRISTINO) await invia(cmd).catch(() => {});
+}
+
+/** La coppia del regime viaggio: corrente con segno /10 e tensione /100. */
+export async function leggiVI(
+  invia: (c: string) => Promise<string>
+): Promise<{ packCurrent?: number; packVoltage?: number }> {
+  const out: { packCurrent?: number; packVoltage?: number } = {};
+
+  const rc = await leggiDid(invia, DID_CORRENTE).catch(() => '');
+  const pc = estraiPayload(rc, DID_CORRENTE);
+  if (pc && pc.length >= 2) {
+    const u = pc[0] * 256 + pc[1];
+    out.packCurrent = (u > 0x7fff ? u - 0x10000 : u) / 10;
+  }
+
+  const rv = await leggiDid(invia, DID_TENSIONE).catch(() => '');
+  const pv = estraiPayload(rv, DID_TENSIONE);
+  if (pv && pv.length >= 2) {
+    const v = (pv[0] * 256 + pv[1]) / 100;
+    // Un pacco sotto i 100 V è il bus a contattori aperti o un errore di
+    // lettura: meglio nessun valore che una potenza calcolata su 2 V.
+    if (v >= 100) out.packVoltage = v;
+  }
+
+  return out;
+}

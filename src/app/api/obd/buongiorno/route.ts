@@ -122,7 +122,10 @@ export async function GET() {
     const dt = c.recordedAt.getTime() - mattina.ancora.recordedAt.getTime();
     if (dt > FINESTRA_COMPLETAMENTO_MS) continue;
     mattina.socDisplay ??= c.socDisplay;
-    mattina.packVoltage ??= c.packVoltage;
+    // La tensione di completamento dev'essere a riposo come l'ancora: un
+    // campione del regime viaggio a 1 Hz porterebbe una tensione sotto carico
+    // spacciata per riposo mattutino.
+    if ((c.speedKmh ?? 0) === 0) mattina.packVoltage ??= c.packVoltage;
     mattina.sohGrezzo ??= grezzo(c, '22496D');
   }
 

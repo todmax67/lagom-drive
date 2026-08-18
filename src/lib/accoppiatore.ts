@@ -66,7 +66,7 @@ async function arricchisci(viaggio: {
       recordedAt: { gte: inizioFinestra, lte: fineFinestra },
     },
     orderBy: { recordedAt: 'asc' },
-    select: { recordedAt: true, speedKmh: true, socDisplay: true },
+    select: { recordedAt: true, speedKmh: true, socDisplay: true, packPowerKw: true },
   });
 
   const esito = calcolaArricchimento(
@@ -89,6 +89,9 @@ async function arricchisci(viaggio: {
     maxSpeedKmh: esito.maxSpeedKmh,
     socStartObd: esito.socStartObd,
     socEndObd: esito.socEndObd,
+    energyGrossKwh: esito.energyGrossKwh,
+    energyRegenGrossKwh: esito.energyRegenGrossKwh,
+    powerCoverage: esito.powerCoverage,
   };
 
   await prisma.tripEnrichment.upsert({

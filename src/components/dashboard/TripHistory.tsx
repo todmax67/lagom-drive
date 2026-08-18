@@ -26,21 +26,43 @@ interface Trip {
     socEndObd: number | null;
     movingStart: string | null;
     movingEnd: string | null;
+    energyGrossKwh: number | null;
+    energyRegenGrossKwh: number | null;
+    powerCoverage: number | null;
   } | null;
 }
 
+// Sopra questa copertura il titolo del consumo diventa livello 1: integrato
+// dai campioni, non dedotto. Soglia indicativa della bussola (§4.2), da tarare.
+const COPERTURA_LIVELLO_1 = 0.95;
+
 // La cascata di provenienza (docs/progetto-obd.md §3): si mostra il migliore
-// disponibile, col badge della fonte. Il livello 1 (integrato dai campioni)
-// arriverà con la potenza confermata.
+// disponibile, col badge della fonte.
 //
-// Il livello 2 oggi è VUOTO, e non per svista: volvoAvgConsumption sembra il
-// consumo dichiarato del viaggio ma è la media dall'ultimo azzeramento MANUALE
-// del contachilometri — sullo storico vale 16.1-16.6 fisso mentre il dedotto
-// dei singoli viaggi balla da 8.2 a 26.8. Mostrarla come consumo del viaggio
-// ha prodotto una card con "4.0 kWh consumati" e "16.1 kWh/100km" fianco a
-// fianco. Un livello 2 vero esisterà quando avremo un dichiarato per-viaggio;
-// fino ad allora il titolo è il dedotto, che almeno parla di QUESTO viaggio.
+// Livello 1 — misurato: ∫V×I sui campioni del regime viaggio, quando la
+// copertura regge il badge. Il netto è trazione lorda meno recupero lordo.
+//
+// Il livello 2 resta VUOTO, e non per svista: volvoAvgConsumption è la media
+// dall'ultimo azzeramento MANUALE del contachilometri (16.1-16.6 fisso sullo
+// storico mentre i viaggi ballano da 8.2 a 26.8), non un dichiarato
+// per-viaggio. Livello 3 — dedotto: ΔSoC × capacità, come sempre.
 function consumoConFonte(trip: Trip): { valore: number; fonte: string } | null {
+  const obd = trip.obd;
+  const km = obd?.distanceObdKm ?? trip.distanceKm;
+  if (
+    obd &&
+    // La copertura che conta è quella della POTENZA: quella globale la
+    // gonfierebbero i campioni solo-GPS, che di energia non sanno nulla.
+    obd.powerCoverage !== null &&
+    obd.powerCoverage >= COPERTURA_LIVELLO_1 &&
+    obd.energyGrossKwh !== null &&
+    obd.energyRegenGrossKwh !== null &&
+    km !== null &&
+    km >= 1
+  ) {
+    const nettoKwh = obd.energyGrossKwh - obd.energyRegenGrossKwh;
+    return { valore: (nettoKwh / km) * 100, fonte: 'misurato · ∫V×I' };
+  }
   if (trip.avgConsumption !== null && trip.avgConsumption > 0) {
     return { valore: trip.avgConsumption, fonte: 'dedotto · ΔSoC × capacità' };
   }
@@ -167,6 +189,22 @@ export default function TripHistory() {
                     <p className="text-xs text-gray-500 mb-1">Recupero netto</p>
                     <p className="text-sm text-white font-light">
                       {trip.energyRegenKwh.toFixed(1)} kWh
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Il recupero LORDO è metrica solo di livello 1 (§4.2): dal
+                  saldo SOC si vede solo in discesa, dall'integrale si misura
+                  sempre. Verde-acqua: energia che entra. */}
+              {trip.obd?.energyRegenGrossKwh != null && trip.obd.energyRegenGrossKwh > 0.05 &&
+                trip.obd.powerCoverage != null && trip.obd.powerCoverage >= COPERTURA_LIVELLO_1 && (
+                <div className="rounded-lg bg-gray-800/60 p-2.5 flex items-start gap-2">
+                  <Leaf size={12} className="text-teal-300 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Recupero lordo · OBD</p>
+                    <p className="text-sm text-white font-light">
+                      {trip.obd.energyRegenGrossKwh.toFixed(1)} kWh
                     </p>
                   </div>
                 </div>

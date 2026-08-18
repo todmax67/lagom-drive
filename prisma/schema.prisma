@@ -163,6 +163,9 @@ model TripEnrichment {
   // ∫ potenza negativa in marcia (recupero lordo, non il saldo)
   energyGrossKwh      Float?
   energyRegenGrossKwh Float?
+  // Copertura della serie di potenza: il badge "misurato" si regge su questa,
+  // perché l'integrale vive sui soli campioni con V*I
+  powerCoverage       Float?
 
   // Niente indice su userId: ogni lettura passa da tripId (unique). Un indice
   // speculativo costerebbe un aggiornamento a ogni upsert senza servire nessuno.
