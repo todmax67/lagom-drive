@@ -58,9 +58,16 @@ export async function GET() {
       },
     }).catch(() => []),
     prisma.chargingSession.findMany({
-      where: { userId, wallKwh: { not: null }, endLevel: { not: null } },
+      where: { userId, endLevel: { not: null } },
       orderBy: { startedAt: 'asc' },
-      select: { startedAt: true, wallKwh: true, startLevel: true, endLevel: true },
+      select: {
+        startedAt: true,
+        endedAt: true,
+        wallKwh: true,
+        startLevel: true,
+        endLevel: true,
+        chargingType: true,
+      },
     }),
   ]);
 
@@ -94,15 +101,40 @@ export async function GET() {
     .filter((x): x is { t: string; kwh: number } => x !== null)
     .sort((a, b) => a.t.localeCompare(b.t));
 
-  // Testimone B: capacità ÷ η, dichiarato tale. La prima coppia storica
-  // (19.31 kWh per 51→80 del 15 ago) NON è riversabile: il rilevatore ha
-  // registrato 57→80, e abbinare il contatore a un delta che non è il suo
-  // fabbricherebbe un punto. La serie parte dalle ricariche col dato inserito.
-  const muro = cariche
-    .map(c => {
-      const delta = c.endLevel! - c.startLevel;
-      if (delta < DELTA_LIVELLO_MIN_MURO) return null;
-      return { t: c.startedAt.toISOString(), kwh: (c.wallKwh! / delta) * 100 };
+  // Testimone B: capacità ÷ η, dichiarato tale.
+  //
+  // Gli spezzoni si ricompongono, come i ritagli dei viaggi: una colonnina
+  // fermata a metà (è successo il 15 ago, stop manuale per accendere forno e
+  // induzione) produce due sessioni del rilevatore che sono UNA ricarica. La
+  // firma è la continuità di livello: fine di una == inizio della successiva,
+  // nessuna guida in mezzo, ripresa entro le 12 ore. Il contatore del gruppo
+  // è la somma dei wallKwh inseriti — vale sia col totale scritto una volta
+  // sola, sia coi contatori per-spezzone.
+  const GAP_MAX_MS = 12 * 3600 * 1000;
+  const gruppi: (typeof cariche)[] = [];
+  for (const c of cariche) {
+    const gruppo = gruppi[gruppi.length - 1];
+    const prec = gruppo?.[gruppo.length - 1];
+    if (
+      prec &&
+      prec.endLevel === c.startLevel &&
+      prec.chargingType === c.chargingType &&
+      prec.endedAt &&
+      c.startedAt.getTime() >= prec.endedAt.getTime() &&
+      c.startedAt.getTime() - prec.endedAt.getTime() <= GAP_MAX_MS
+    ) {
+      gruppo.push(c);
+    } else {
+      gruppi.push([c]);
+    }
+  }
+  const muro = gruppi
+    .map(g => {
+      const delta = g[g.length - 1].endLevel! - g[0].startLevel;
+      const contatori = g.filter(c => c.wallKwh != null);
+      if (contatori.length === 0 || delta < DELTA_LIVELLO_MIN_MURO) return null;
+      const wall = contatori.reduce((s, c) => s + c.wallKwh!, 0);
+      return { t: g[0].startedAt.toISOString(), kwh: (wall / delta) * 100 };
     })
     .filter((x): x is { t: string; kwh: number } => x !== null);
 
