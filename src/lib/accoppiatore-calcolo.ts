@@ -18,6 +18,7 @@ export type CampioneAccoppiabile = {
   recordedAt: Date;
   speedKmh: number | null;
   socDisplay: number | null;
+  packPowerKw: number | null;
 };
 
 export type Arricchimento = {
@@ -30,6 +31,13 @@ export type Arricchimento = {
   maxSpeedKmh: number | null;
   socStartObd: number | null;
   socEndObd: number | null;
+  energyGrossKwh: number | null;
+  energyRegenGrossKwh: number | null;
+  // Copertura della SERIE DI POTENZA, distinta da quella globale: l'integrale
+  // vive sui soli campioni con potenza, e un viaggio pieno di campioni GPS
+  // senza V*I avrebbe copertura piena e integrale vuoto. Il badge "misurato"
+  // si regge su questa, non sull'altra.
+  powerCoverage: number | null;
 };
 
 // Oltre questo intervallo fra due campioni il tratto non è né coperto né
@@ -156,6 +164,39 @@ export function calcolaArricchimento(
       (dtMs / 3_600_000);
   }
 
+  // L'energia di livello 1: integrale a trapezio della potenza (V*I, kW con
+  // segno) sui soli tratti coperti — stessa regola della distanza, i buchi
+  // non si interpolano. Il segno separa i due popoli della bussola: positivo
+  // e' trazione (lordo), negativo e' recupero (lordo), e il netto e' la
+  // differenza. Dal solo saldo SOC il recupero era osservabile solo in
+  // discesa; qui si misura sempre.
+  const conPotenza = ordinati.filter(c => c.packPowerKw !== null);
+  let lordoKwh = 0;
+  let recuperoKwh = 0;
+  for (let i = 1; i < conPotenza.length; i++) {
+    const dtMs =
+      conPotenza[i].recordedAt.getTime() - conPotenza[i - 1].recordedAt.getTime();
+    if (dtMs > INTERVALLO_COPERTO_MS) continue;
+    const kwhSegmento =
+      ((conPotenza[i].packPowerKw! + conPotenza[i - 1].packPowerKw!) / 2) *
+      (dtMs / 3_600_000);
+    if (kwhSegmento >= 0) lordoKwh += kwhSegmento;
+    else recuperoKwh += -kwhSegmento;
+  }
+  const conEnergia = conPotenza.length >= MIN_CAMPIONI;
+
+  // Copertura della potenza: tempo fra campioni con potenza consecutivi
+  // entro soglia, sulla stessa base temporale della copertura globale.
+  let copertoPotenzaMs = 0;
+  for (let i = 1; i < conPotenza.length; i++) {
+    const dtMs =
+      conPotenza[i].recordedAt.getTime() - conPotenza[i - 1].recordedAt.getTime();
+    if (dtMs <= INTERVALLO_COPERTO_MS) copertoPotenzaMs += dtMs;
+  }
+  const powerCoverage = conEnergia
+    ? Math.min(1, copertoPotenzaMs / durataBaseMs)
+    : null;
+
   // Il SOC ai confini della base, mai dell'intera finestra di aggancio: il
   // margine ±20 minuti può contenere una ricarica o una sosta col clima
   // acceso, e i confini SOC devono restare dentro il viaggio.
@@ -173,5 +214,8 @@ export function calcolaArricchimento(
       : null,
     socStartObd: conSoc.length ? conSoc[0].socDisplay : null,
     socEndObd: conSoc.length ? conSoc[conSoc.length - 1].socDisplay : null,
+    energyGrossKwh: conEnergia ? lordoKwh : null,
+    energyRegenGrossKwh: conEnergia ? recuperoKwh : null,
+    powerCoverage,
   };
 }

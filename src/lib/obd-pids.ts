@@ -15,7 +15,12 @@ export type CampoObd =
   | 'socDisplay'
   | 'speedKmh'
   | 'batt12vVoltage'
-  | 'ambientC';
+  | 'ambientC'
+  // Il regime viaggio scrive anche questi: V e I letti dal BECM a ~1 Hz,
+  // e la potenza come prodotto — P = V*I, mai un DID indovinato
+  | 'packCurrent'
+  | 'packVoltage'
+  | 'packPowerKw';
 
 export type DefinizionePid = {
   comando: string;
