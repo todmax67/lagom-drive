@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Lagom Drive</string>
+    <string name="title_activity_main">Lagom Drive</string>
+    <string name="package_name">it.bluspose.lagomdrive</string>
+    <string name="custom_url_scheme">it.bluspose.lagomdrive</string>
+</resources>
