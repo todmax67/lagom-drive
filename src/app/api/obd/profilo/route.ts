@@ -54,7 +54,7 @@ export async function GET(request: Request) {
 
   const potenza = campioni.filter(c => c.packPowerKw !== null);
   if (potenza.length < 2) {
-    return NextResponse.json({ secchi: [], ambientC, gapMin: null });
+    return NextResponse.json({ secchi: [], ambientC, gapSec: null });
   }
 
   const nSecchi = Math.max(SECCHI_MIN, Math.min(SECCHI_MAX, Math.floor(spanMs / 10_000)));
@@ -108,7 +108,9 @@ export async function GET(request: Request) {
   return NextResponse.json({
     secchi,
     ambientC,
-    // I minuti senza dati della finestra: la legenda del grafico li dichiara
-    gapMin: Math.max(0, Math.round((spanMs - copertoTotMs) / 60_000)),
+    // Il tempo senza dati della finestra, in secondi esatti: arrotondare al
+    // minuto qui taglierebbe fino a 30 s di buco — la forma la decide la UI,
+    // che dichiara l'approssimazione col suo segno
+    gapSec: Math.max(0, Math.round((spanMs - copertoTotMs) / 1000)),
   });
 }

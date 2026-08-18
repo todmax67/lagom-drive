@@ -39,7 +39,7 @@ interface Trip {
 interface Profilo {
   secchi: { pos: number; neg: number; dati: boolean }[];
   ambientC: number | null;
-  gapMin: number | null;
+  gapSec: number | null;
 }
 
 /**
@@ -259,7 +259,12 @@ function GraficoPotenza({ profilo }: { profilo: Profilo }) {
   }
   const mezzoPasso = W / (2 * (n - 1));
 
-  const gapMin = profilo.gapMin ?? 0;
+  // Sotto i 45 s il "senza dati" è residuo di bordo, non un buco da legenda;
+  // sopra, si dichiara al minuto col segno di approssimazione — mai troncando
+  // in silenzio fino a mezzo minuto di buco
+  const gapSec = profilo.gapSec ?? 0;
+  const gapEtichetta =
+    gapSec >= 45 ? `≈${Math.max(1, Math.round(gapSec / 60))} min senza dati` : null;
 
   return (
     <div className="flex flex-col gap-2">
@@ -299,10 +304,10 @@ function GraficoPotenza({ profilo }: { profilo: Profilo }) {
           <span className="w-2 h-2 rounded-sm bg-teal-400/80" />
           recupero
         </span>
-        {gapMin >= 1 && (
+        {gapEtichetta && (
           <span className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-sm bg-gray-500/40" />
-            {gapMin} min senza dati
+            {gapEtichetta}
           </span>
         )}
       </div>
@@ -374,7 +379,9 @@ function CardMisurata({
       .catch(() => {});
   }, [inizio, fine]);
 
-  const km = trip.distanceKm ?? obd.distanceObdKm;
+  // Stessa cascata di consumoConFonte (OBD prima del cloud): il numero grande
+  // e il confronto con la mediana devono dividere per gli STESSI km
+  const km = obd.distanceObdKm ?? trip.distanceKm;
   const lordo = obd.energyGrossKwh!;
   const recupero = obd.energyRegenGrossKwh!;
   const netto = lordo - recupero;
@@ -473,19 +480,28 @@ function CardMisurata({
 // non esiste nell'API (livello 2 vuoto, vedi consumoConFonte).
 function CardCompatta({ trip }: { trip: Trip }) {
   const consumo = consumoConFonte(trip);
-  const socInizio = trip.obd?.socStartObd ?? trip.startBattery;
-  const socFine = trip.obd?.socEndObd ?? trip.endBattery;
+  // La coppia SoC da UNA fonte sola: OBD se completa, altrimenti cloud. Una
+  // freccia con inizio cloud e fine OBD (possibile sulle card ricomposte)
+  // mescolerebbe due metri diversi senza dichiararlo.
+  const socObd = trip.obd?.socStartObd != null && trip.obd?.socEndObd != null;
+  const socInizio = socObd ? trip.obd!.socStartObd! : trip.startBattery;
+  const socFine = socObd ? trip.obd!.socEndObd : trip.endBattery;
+  // Attacca e rifinisce (§4.2) vale anche qui: i tempi testimoniati dai
+  // campioni, quando ci sono entrambi, battono la ricostruzione cloud
+  const rifinito = trip.obd?.movingStart != null && trip.obd?.movingEnd != null;
   const obdParziale = trip.obd != null;
 
   return (
     <div className="rounded-xl bg-gray-900/60 p-4 flex items-start justify-between gap-3">
       <div>
         <p className="text-sm font-medium text-white">
-          {dataGiorno(trip.startedAt)} · {ora(trip.startedAt)}
+          {dataGiorno(trip.startedAt)} · {ora(rifinito ? trip.obd!.movingStart! : trip.startedAt)}
         </p>
         <p className="text-xs text-gray-500 mt-0.5">
           {trip.distanceKm != null ? `${it(trip.distanceKm, 1)} km` : 'distanza n/d'}
-          {` · ${formatDuration(trip.startedAt, trip.endedAt)}`}
+          {` · ${rifinito
+            ? formatDuration(trip.obd!.movingStart!, trip.obd!.movingEnd!)
+            : formatDuration(trip.startedAt, trip.endedAt)}`}
           {socFine != null &&
             ` · ${Math.round(socInizio)} → ${Math.round(socFine)}%`}
         </p>
