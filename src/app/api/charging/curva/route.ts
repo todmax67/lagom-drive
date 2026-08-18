@@ -16,10 +16,11 @@ import { prisma } from '@/lib/prisma';
 const SPAN_MAX_MS = 24 * 60 * 60 * 1000;
 // Il margine attorno alla finestra: gli snapshot non cadono sui bordi esatti
 const MARGINE_MS = 5 * 60 * 1000;
-// Fra due snapshot troppo vicini il ΔSoC intero è tutto rumore; oltre i 20
-// minuti il tratto non è più una media credibile ma un buco
+// Fra due scatti troppo vicini il ΔSoC intero è tutto rumore; oltre i 45
+// minuti (una Schuko da 2.3 kW impiega ~18 min a livello) l'intervallo non è
+// più una media credibile ma un buco di raccolta
 const DT_MIN_MS = 30 * 1000;
-const DT_MAX_MS = 20 * 60 * 1000;
+const DT_MAX_MS = 45 * 60 * 1000;
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -52,25 +53,35 @@ export async function GET(request: Request) {
   ]);
   const capacita = settings?.batteryCapacity ?? 67;
 
-  // I gradini di potenza dedotta: solo sui tratti in carica (almeno un capo
-  // dichiarato in carica) e con livello non decrescente — un calo di livello
-  // in mezzo alla finestra è una guida, non una ricarica.
+  // La potenza si deduce fra gli SCATTI di livello, non fra snapshot
+  // consecutivi: il livello è intero, e su una AC lenta (20 A: un punto ogni
+  // ~9 min) il cron a 1-2 min vede quasi sempre Δ=0 e ogni tanto lo scatto
+  // intero — una sega 0/20 kW che non è la carica. Il tempo fra un +1 e il
+  // successivo è invece la misura pulita: 0.67 kWh / 9 min ≈ 4.5 kW. In DC,
+  // dove gli scatti sono più fitti del cron, ΔLivello ≥ 1 per intervallo fa
+  // lo stesso conto con meno rumore.
+  //
+  // Solo capi in carica (i tratti a cavallo di attacco/stacco diluirebbero la
+  // carica su tempo dichiarato fermo); un livello che SCENDE in mezzo alla
+  // finestra è una guida, e riparte il conteggio.
+  const inCarica = snapshot.filter(s => s.isCharging);
+  const scatti: { t: number; level: number }[] = [];
+  for (const s of inCarica) {
+    const ultimo = scatti[scatti.length - 1];
+    if (!ultimo || s.level > ultimo.level) {
+      scatti.push({ t: s.createdAt.getTime(), level: s.level });
+    } else if (s.level < ultimo.level) {
+      scatti.length = 0;
+      scatti.push({ t: s.createdAt.getTime(), level: s.level });
+    }
+  }
   const dedotta: { t: string; kw: number }[] = [];
-  for (let i = 1; i < snapshot.length; i++) {
-    const s0 = snapshot[i - 1];
-    const s1 = snapshot[i];
-    const dt = s1.createdAt.getTime() - s0.createdAt.getTime();
+  for (let i = 1; i < scatti.length; i++) {
+    const dt = scatti[i].t - scatti[i - 1].t;
     if (dt < DT_MIN_MS || dt > DT_MAX_MS) continue;
-    // ENTRAMBI i capi in carica: un tratto a cavallo dell'attacco o dello
-    // stacco diluirebbe la carica su tempo che la fonte stessa dichiara non
-    // in carica — un gradino inventato al bordo di quasi ogni sessione,
-    // visto che il cron campiona ogni 1-2 minuti anche da fermo
-    if (!s0.isCharging || !s1.isCharging) continue;
-    const deltaLivello = s1.level - s0.level;
-    if (deltaLivello < 0) continue;
-    const kw = ((deltaLivello / 100) * capacita) / (dt / 3_600_000);
+    const kw = (((scatti[i].level - scatti[i - 1].level) / 100) * capacita) / (dt / 3_600_000);
     dedotta.push({
-      t: new Date((s0.createdAt.getTime() + s1.createdAt.getTime()) / 2).toISOString(),
+      t: new Date((scatti[i - 1].t + scatti[i].t) / 2).toISOString(),
       kw,
     });
   }
