@@ -22,6 +22,7 @@ import MonthlyHistory from '@/components/dashboard/MonthlyHistory';
 import TripHistory from '@/components/dashboard/TripHistory';
 import RaccoltaFerma from '@/components/dashboard/RaccoltaFerma';
 import SondaBuongiorno from '@/components/dashboard/SondaBuongiorno';
+import SalutePage from '@/components/dashboard/SalutePage';
 
 // La navigazione della bussola (§4.1): cinque voci più Impostazioni.
 // Statistiche e Posizione sono riassorbite in Oggi.
@@ -117,40 +118,10 @@ useEffect(() => {
       );
     }
 
-    // Salute (§4.4): la pagina esiste e dichiara l'attesa — il cold start
-    // onesto della bussola. I testimoni depongono, la sentenza matura.
+    // Salute (§4.4): il processo ai testimoni come serie temporale che si
+    // costruisce da sola. I punti si depositano, la sentenza matura.
     if (page === 'salute') {
-      return (
-        <div className="max-w-2xl rounded-2xl border border-gray-700/50 bg-gray-800/50 p-6 flex flex-col gap-4">
-          <span className="text-xs font-semibold tracking-widest text-gray-400 uppercase flex items-center gap-2">
-            <HeartPulse size={13} className="text-rose-300" />
-            Salute della batteria
-          </span>
-          <p className="text-sm text-gray-300">
-            I tre testimoni stanno raccogliendo le deposizioni. La prima
-            sentenza piena richiede circa sei mesi di serie misurate: qui
-            comparirà quando i punti basteranno, non prima.
-          </p>
-          <div className="grid grid-cols-1 gap-2">
-            <div className="rounded-lg bg-gray-900/60 p-3">
-              <p className="text-xs text-gray-500 mb-1">Testimone A · registro SoH del BECM</p>
-              <p className="text-sm text-white font-light">94.36% dichiarato · in validazione: dev&apos;essere visto muoversi</p>
-            </div>
-            <div className="rounded-lg bg-gray-900/60 p-3">
-              <p className="text-xs text-gray-500 mb-1">Testimone B · coppie muro/pacco delle ricariche</p>
-              <p className="text-sm text-white font-light">prima coppia raccolta · ogni ricarica col contatore stringe la stima</p>
-            </div>
-            <div className="rounded-lg bg-gray-900/60 p-3">
-              <p className="text-xs text-gray-500 mb-1">Testimone C · integrali dei viaggi misurati</p>
-              <p className="text-sm text-white font-light">in raccolta dal 18 agosto · ogni viaggio registrato è un punto</p>
-            </div>
-          </div>
-          <p className="text-xs text-gray-600">
-            La capacità di lavoro resta 67 kWh finché la promozione non sarà un
-            atto deliberato, con abbastanza punti concordi (bussola §4.4).
-          </p>
-        </div>
-      );
+      return <SalutePage />;
     }
 
     if (page === 'trips') {
