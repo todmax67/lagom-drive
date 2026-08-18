@@ -83,9 +83,10 @@ export async function POST(request: Request) {
   // La sessione dichiarata (bussola par. 5.2): id dal client, contesto da una
   // lista chiusa, versione dell'app. Tutto opzionale — i client vecchi e gli
   // script non dichiarano niente — ma se arriva, arriva ben formato.
-  const sessionId =
-    typeof corpo.sessionId === 'string' && /^[0-9a-fA-F-]{8,64}$/.test(corpo.sessionId)
-      ? corpo.sessionId
+  const sessionDeclared = typeof corpo.sessionId === 'string' && corpo.sessionId.length > 0;
+  let sessionId =
+    sessionDeclared && /^[0-9a-fA-F-]{8,64}$/.test(corpo.sessionId as string)
+      ? (corpo.sessionId as string)
       : null;
   const CONTESTI = ['buongiorno', 'viaggio', 'carica', 'libero'];
   const context =
@@ -96,6 +97,19 @@ export async function POST(request: Request) {
     typeof corpo.appVersion === 'string' && /^[\w.-]{1,40}$/.test(corpo.appVersion)
       ? corpo.appVersion
       : null;
+  // La sessione appartiene a chi l'ha creata: un id indovinato da un altro
+  // dispositivo degrada a null invece di scrivere su una sessione altrui.
+  // I campioni passano comunque — la sessione e' metadato.
+  if (sessionId) {
+    const esistente = await prisma.obdSession
+      .findUnique({ where: { id: sessionId }, select: { userId: true, deviceId: true } })
+      .catch(() => null);
+    if (esistente && (esistente.userId !== device.userId || esistente.deviceId !== device.id)) {
+      console.error(`Ingest: sessione ${sessionId} di altro proprietario, degradata`);
+      sessionId = null;
+    }
+  }
+
   if (!Array.isArray(samples)) {
     return NextResponse.json({ message: 'Campo samples mancante' }, { status: 400 });
   }
@@ -184,6 +198,14 @@ export async function POST(request: Request) {
         },
         update: {},
       });
+      // Il contesto si puo' solo promuovere: una sessione nata 'libero' che
+      // poi dichiara 'viaggio' o 'carica' viene aggiornata, mai il contrario.
+      if (context !== 'libero') {
+        await prisma.obdSession.updateMany({
+          where: { id: sessionId, context: 'libero' },
+          data: { context },
+        });
+      }
       await prisma.obdSession.updateMany({
         where: { id: sessionId, userId: device.userId, startedAt: { gt: inizio } },
         data: { startedAt: inizio },
@@ -228,5 +250,8 @@ export async function POST(request: Request) {
     accepted: inseriti,
     duplicates: rows.length - inseriti,
     rejected,
+    // Dichiarata ma scartata (malformata o di altro proprietario): il client
+    // deve poterlo vedere invece di credere i campioni agganciati.
+    sessionDropped: sessionDeclared && sessionId === null,
   });
 }

@@ -38,6 +38,10 @@ export type Arricchimento = {
   // senza V*I avrebbe copertura piena e integrale vuoto. Il badge "misurato"
   // si regge su questa, non sull'altra.
   powerCoverage: number | null;
+  // I confini della base: la dominanza di sessione si giudica qui dentro,
+  // non sui margini di aggancio dove vivono i campioni dei vicini
+  baseInizio: Date;
+  baseFine: Date;
 };
 
 // Oltre questo intervallo fra due campioni il tratto non è né coperto né
@@ -217,5 +221,7 @@ export function calcolaArricchimento(
     energyGrossKwh: conEnergia ? lordoKwh : null,
     energyRegenGrossKwh: conEnergia ? recuperoKwh : null,
     powerCoverage,
+    baseInizio,
+    baseFine,
   };
 }
