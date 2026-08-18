@@ -1,0 +1,261 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="it.bluspose.lagomdrive"
+4    android:versionCode="1"
+5    android:versionName="1.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="23"
+9        android:targetSdkVersion="36" />
+10
+11    <!-- Permissions -->
+12
+13    <uses-permission android:name="android.permission.INTERNET" />
+13-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:54:5-67
+13-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:54:22-64
+14
+15    <!-- Il canale BLE del dongle: scansione senza derivarne la posizione -->
+16    <uses-permission
+16-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:57:5-58:58
+17        android:name="android.permission.BLUETOOTH_SCAN"
+17-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:57:22-70
+18        android:usesPermissionFlags="neverForLocation" />
+18-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:58:9-55
+19    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+19-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:59:5-76
+19-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:59:22-73
+20    <uses-permission
+20-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:60:5-95
+21        android:name="android.permission.BLUETOOTH"
+21-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:60:22-65
+22        android:maxSdkVersion="30" />
+22-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:60:66-92
+23    <uses-permission
+23-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:61:5-101
+24        android:name="android.permission.BLUETOOTH_ADMIN"
+24-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:61:22-71
+25        android:maxSdkVersion="30" />
+25-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:61:72-98
+26
+27    <!-- Il GPS del regime viaggio, anche nella webview -->
+28    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+28-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:64:5-81
+28-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:64:22-78
+29    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+29-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:65:5-79
+29-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:65:22-76
+30
+31    <!-- Il presidio: servizio in primo piano con wake lock parziale -->
+32    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+32-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:68:5-77
+32-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:68:22-74
+33    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+33-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:69:5-94
+33-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:69:22-91
+34    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+34-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:70:5-86
+34-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:70:22-83
+35    <uses-permission android:name="android.permission.WAKE_LOCK" />
+35-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:71:5-68
+35-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:71:22-65
+36    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+36-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:72:5-77
+36-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:72:22-74
+37
+38    <uses-feature
+38-->[:capacitor-community-bluetooth-le] /Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/node_modules/@capacitor-community/bluetooth-le/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:23:5-25:36
+39        android:name="android.hardware.bluetooth_le"
+39-->[:capacitor-community-bluetooth-le] /Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/node_modules/@capacitor-community/bluetooth-le/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:24:9-53
+40        android:required="false" />
+40-->[:capacitor-community-bluetooth-le] /Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/node_modules/@capacitor-community/bluetooth-le/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:25:9-33
+41
+42    <queries>
+42-->[:capacitor-browser] /Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/node_modules/@capacitor/browser/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:7:5-11:15
+43        <intent>
+43-->[:capacitor-browser] /Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/node_modules/@capacitor/browser/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:8:9-10:18
+44            <action android:name="android.support.customtabs.action.CustomTabsService" />
+44-->[:capacitor-browser] /Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/node_modules/@capacitor/browser/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:9:13-90
+44-->[:capacitor-browser] /Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/node_modules/@capacitor/browser/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:9:21-87
+45        </intent>
+46    </queries>
+47
+48    <permission
+48-->[androidx.core:core:1.15.0] /Users/bluspose/.gradle/caches/8.11.1/transforms/0b5ab4957e0d9201dc0e34b2e70d1e62/transformed/core-1.15.0/AndroidManifest.xml:22:5-24:47
+49        android:name="it.bluspose.lagomdrive.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+49-->[androidx.core:core:1.15.0] /Users/bluspose/.gradle/caches/8.11.1/transforms/0b5ab4957e0d9201dc0e34b2e70d1e62/transformed/core-1.15.0/AndroidManifest.xml:23:9-81
+50        android:protectionLevel="signature" />
+50-->[androidx.core:core:1.15.0] /Users/bluspose/.gradle/caches/8.11.1/transforms/0b5ab4957e0d9201dc0e34b2e70d1e62/transformed/core-1.15.0/AndroidManifest.xml:24:9-44
+51
+52    <uses-permission android:name="it.bluspose.lagomdrive.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+52-->[androidx.core:core:1.15.0] /Users/bluspose/.gradle/caches/8.11.1/transforms/0b5ab4957e0d9201dc0e34b2e70d1e62/transformed/core-1.15.0/AndroidManifest.xml:26:5-97
+52-->[androidx.core:core:1.15.0] /Users/bluspose/.gradle/caches/8.11.1/transforms/0b5ab4957e0d9201dc0e34b2e70d1e62/transformed/core-1.15.0/AndroidManifest.xml:26:22-94
+53
+54    <application
+54-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:4:5-50:19
+55        android:allowBackup="true"
+55-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:5:9-35
+56        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+56-->[androidx.core:core:1.15.0] /Users/bluspose/.gradle/caches/8.11.1/transforms/0b5ab4957e0d9201dc0e34b2e70d1e62/transformed/core-1.15.0/AndroidManifest.xml:28:18-86
+57        android:debuggable="true"
+58        android:extractNativeLibs="false"
+59        android:icon="@mipmap/ic_launcher"
+59-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:6:9-43
+60        android:label="@string/app_name"
+60-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:7:9-41
+61        android:roundIcon="@mipmap/ic_launcher_round"
+61-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:8:9-54
+62        android:supportsRtl="true"
+62-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:9:9-35
+63        android:theme="@style/AppTheme" >
+63-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:10:9-40
+64        <activity
+64-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:12:9-33:20
+65            android:name="it.bluspose.lagomdrive.MainActivity"
+65-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:14:13-41
+66            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
+66-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:13:13-140
+67            android:exported="true"
+67-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:18:13-36
+68            android:label="@string/title_activity_main"
+68-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:15:13-56
+69            android:launchMode="singleTask"
+69-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:17:13-44
+70            android:theme="@style/AppTheme.NoActionBarLaunch" >
+70-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:16:13-62
+71            <intent-filter>
+71-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:20:13-23:29
+72                <action android:name="android.intent.action.MAIN" />
+72-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:21:17-69
+72-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:21:25-66
+73
+74                <category android:name="android.intent.category.LAUNCHER" />
+74-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:22:17-77
+74-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:22:27-74
+75            </intent-filter>
+76
+77            <!-- Il ritorno del ponte di sessione: lagomdrive://ponte?codice=… -->
+78            <intent-filter>
+78-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:26:13-31:29
+79                <action android:name="android.intent.action.VIEW" />
+79-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:27:17-69
+79-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:27:25-66
+80
+81                <category android:name="android.intent.category.DEFAULT" />
+81-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:28:17-76
+81-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:28:27-73
+82                <category android:name="android.intent.category.BROWSABLE" />
+82-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:29:17-78
+82-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:29:27-75
+83
+84                <data android:scheme="lagomdrive" />
+84-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:30:17-53
+84-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:30:23-50
+85            </intent-filter>
+86        </activity>
+87
+88        <!-- Il guardiano del presidio: tipo dichiarato per BLE e GPS -->
+89        <service
+89-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:36:9-39:72
+90            android:name="it.bluspose.lagomdrive.PresidioService"
+90-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:37:13-44
+91            android:exported="false"
+91-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:38:13-37
+92            android:foregroundServiceType="connectedDevice|location" />
+92-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:39:13-69
+93
+94        <provider
+95            android:name="androidx.core.content.FileProvider"
+95-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:42:13-62
+96            android:authorities="it.bluspose.lagomdrive.fileprovider"
+96-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:43:13-64
+97            android:exported="false"
+97-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:44:13-37
+98            android:grantUriPermissions="true" >
+98-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:45:13-47
+99            <meta-data
+99-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:46:13-48:64
+100                android:name="android.support.FILE_PROVIDER_PATHS"
+100-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:47:17-67
+101                android:resource="@xml/file_paths" />
+101-->/Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/android/app/src/main/AndroidManifest.xml:48:17-51
+102        </provider>
+103
+104        <activity
+104-->[:capacitor-browser] /Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/node_modules/@capacitor/browser/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:14:9-18:75
+105            android:name="com.capacitorjs.plugins.browser.BrowserControllerActivity"
+105-->[:capacitor-browser] /Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/node_modules/@capacitor/browser/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:15:13-85
+106            android:exported="false"
+106-->[:capacitor-browser] /Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/node_modules/@capacitor/browser/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:16:13-37
+107            android:launchMode="singleTask"
+107-->[:capacitor-browser] /Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/node_modules/@capacitor/browser/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:17:13-44
+108            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+108-->[:capacitor-browser] /Volumes/Lexar/Sviluppo/lagom-drive/.claude/worktrees/eager-swirles-6c88ed/node_modules/@capacitor/browser/android/build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml:18:13-72
+109
+110        <provider
+110-->[androidx.emoji2:emoji2:1.3.0] /Users/bluspose/.gradle/caches/8.11.1/transforms/4c8e646ea73ae89ab8a95df5ac4d98a3/transformed/emoji2-1.3.0/AndroidManifest.xml:24:9-32:20
+111            android:name="androidx.startup.InitializationProvider"
+111-->[androidx.emoji2:emoji2:1.3.0] /Users/bluspose/.gradle/caches/8.11.1/transforms/4c8e646ea73ae89ab8a95df5ac4d98a3/transformed/emoji2-1.3.0/AndroidManifest.xml:25:13-67
+112            android:authorities="it.bluspose.lagomdrive.androidx-startup"
+112-->[androidx.emoji2:emoji2:1.3.0] /Users/bluspose/.gradle/caches/8.11.1/transforms/4c8e646ea73ae89ab8a95df5ac4d98a3/transformed/emoji2-1.3.0/AndroidManifest.xml:26:13-68
+113            android:exported="false" >
+113-->[androidx.emoji2:emoji2:1.3.0] /Users/bluspose/.gradle/caches/8.11.1/transforms/4c8e646ea73ae89ab8a95df5ac4d98a3/transformed/emoji2-1.3.0/AndroidManifest.xml:27:13-37
+114            <meta-data
+114-->[androidx.emoji2:emoji2:1.3.0] /Users/bluspose/.gradle/caches/8.11.1/transforms/4c8e646ea73ae89ab8a95df5ac4d98a3/transformed/emoji2-1.3.0/AndroidManifest.xml:29:13-31:52
+115                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+115-->[androidx.emoji2:emoji2:1.3.0] /Users/bluspose/.gradle/caches/8.11.1/transforms/4c8e646ea73ae89ab8a95df5ac4d98a3/transformed/emoji2-1.3.0/AndroidManifest.xml:30:17-75
+116                android:value="androidx.startup" />
+116-->[androidx.emoji2:emoji2:1.3.0] /Users/bluspose/.gradle/caches/8.11.1/transforms/4c8e646ea73ae89ab8a95df5ac4d98a3/transformed/emoji2-1.3.0/AndroidManifest.xml:31:17-49
+117            <meta-data
+117-->[androidx.lifecycle:lifecycle-process:2.6.2] /Users/bluspose/.gradle/caches/8.11.1/transforms/49130f537ef89ee38b7f7935d734d3a9/transformed/lifecycle-process-2.6.2/AndroidManifest.xml:29:13-31:52
+118                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+118-->[androidx.lifecycle:lifecycle-process:2.6.2] /Users/bluspose/.gradle/caches/8.11.1/transforms/49130f537ef89ee38b7f7935d734d3a9/transformed/lifecycle-process-2.6.2/AndroidManifest.xml:30:17-78
+119                android:value="androidx.startup" />
+119-->[androidx.lifecycle:lifecycle-process:2.6.2] /Users/bluspose/.gradle/caches/8.11.1/transforms/49130f537ef89ee38b7f7935d734d3a9/transformed/lifecycle-process-2.6.2/AndroidManifest.xml:31:17-49
+120            <meta-data
+120-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:29:13-31:52
+121                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
+121-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:30:17-85
+122                android:value="androidx.startup" />
+122-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:31:17-49
+123        </provider>
+124
+125        <receiver
+125-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:34:9-52:20
+126            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+126-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:35:13-76
+127            android:directBootAware="false"
+127-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:36:13-44
+128            android:enabled="true"
+128-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:37:13-35
+129            android:exported="true"
+129-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:38:13-36
+130            android:permission="android.permission.DUMP" >
+130-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:39:13-57
+131            <intent-filter>
+131-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:40:13-42:29
+132                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
+132-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:41:17-91
+132-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:41:25-88
+133            </intent-filter>
+134            <intent-filter>
+134-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:43:13-45:29
+135                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
+135-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:44:17-85
+135-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:44:25-82
+136            </intent-filter>
+137            <intent-filter>
+137-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:46:13-48:29
+138                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
+138-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:47:17-88
+138-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:47:25-85
+139            </intent-filter>
+140            <intent-filter>
+140-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:49:13-51:29
+141                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
+141-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:50:17-95
+141-->[androidx.profileinstaller:profileinstaller:1.3.1] /Users/bluspose/.gradle/caches/8.11.1/transforms/668d2b89ceb39350cf3bccceca316d2a/transformed/profileinstaller-1.3.1/AndroidManifest.xml:50:25-92
+142            </intent-filter>
+143        </receiver>
+144    </application>
+145
+146</manifest>
