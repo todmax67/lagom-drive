@@ -116,13 +116,13 @@ function SessionCard({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-gray-400">
             {formatDate(session.startedAt)}
           </span>
           {session.isComplete && !editing && (
             <button
               onClick={() => setEditing(true)}
-              className="p-1.5 rounded-lg text-gray-500 hover:text-blue-400 hover:bg-blue-400/10 transition-all"
+              className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400 hover:bg-blue-400/10 transition-all"
               title="Modifica prezzo"
             >
               <Pencil size={13} />
@@ -134,13 +134,13 @@ function SessionCard({
       {/* Dati */}
       <div className="grid grid-cols-3 gap-2">
         <div className="rounded-lg bg-gray-800/60 p-2.5">
-          <p className="text-xs text-gray-500 mb-1">Livello</p>
+          <p className="text-xs text-gray-400 mb-1">Livello</p>
           <p className="text-sm text-white font-light">
             {session.startLevel}% → {session.endLevel ?? '...'}%
           </p>
         </div>
         <div className="rounded-lg bg-gray-800/60 p-2.5">
-          <p className="text-xs text-gray-500 mb-1">
+          <p className="text-xs text-gray-400 mb-1">
             Energia{session.wallKwh != null && ' · muro'}
           </p>
           <p className="text-sm text-white font-light">
@@ -153,13 +153,13 @@ function SessionCard({
           {/* Efficienza = entrati/pagati. Dedotto su misurato: la barra
               d'errore vera arriverà con la capacità calibrata. */}
           {session.wallKwh != null && session.energyAdded != null && (
-            <p className="text-xs text-gray-500 mt-0.5">
+            <p className="text-xs text-gray-400 mt-0.5">
               pacco {session.energyAdded.toFixed(1)} · η {Math.round((session.energyAdded / session.wallKwh) * 100)}%
             </p>
           )}
         </div>
         <div className="rounded-lg bg-gray-800/60 p-2.5">
-          <p className="text-xs text-gray-500 mb-1">Durata</p>
+          <p className="text-xs text-gray-400 mb-1">Durata</p>
           <p className="text-sm text-white font-light">
             {formatDuration(session.startedAt, session.endedAt)}
           </p>
@@ -171,7 +171,7 @@ function SessionCard({
         <div className="border-t border-gray-700/50 pt-3 flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-gray-500">Tariffa (€/kWh)</label>
+              <label className="text-xs text-gray-400">Tariffa (€/kWh)</label>
               <input
                 type="number"
                 step="0.01"
@@ -182,13 +182,13 @@ function SessionCard({
                 placeholder="es. 0.45"
               />
               {(parseFloat(wallKwh) > 0 || session.energyAdded) && costPerKwh && (
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-400">
                   Totale: €{((parseFloat(wallKwh) > 0 ? parseFloat(wallKwh) : session.energyAdded ?? 0) * parseFloat(costPerKwh || '0')).toFixed(2)}
                 </p>
               )}
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-gray-500">Contatore a muro (kWh)</label>
+              <label className="text-xs text-gray-400">Contatore a muro (kWh)</label>
               <input
                 type="number"
                 step="0.01"
@@ -200,7 +200,7 @@ function SessionCard({
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-gray-500">Luogo</label>
+              <label className="text-xs text-gray-400">Luogo</label>
               <input
                 type="text"
                 value={location}
@@ -231,7 +231,7 @@ function SessionCard({
       {/* Costo */}
       {session.totalCost != null && !editing && (
         <div className="flex items-center justify-between border-t border-gray-700/50 pt-3">
-          <span className="text-xs text-gray-500 flex items-center gap-1">
+          <span className="text-xs text-gray-400 flex items-center gap-1">
             <Euro size={11} />
             {session.costPerKwh
               ? `€${session.costPerKwh.toFixed(2)}/kWh`
@@ -262,7 +262,7 @@ export default function ChargingHistory({
   if (sessions.length === 0) {
     return (
       <div className="rounded-2xl border border-gray-700/50 bg-gray-800/50 p-6">
-        <p className="text-gray-500 text-sm text-center">
+        <p className="text-gray-400 text-sm text-center">
           Nessuna sessione di ricarica registrata ancora.
         </p>
       </div>

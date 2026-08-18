@@ -84,9 +84,9 @@ export default function SettingsPage() {
               onChange={e => setSettings(s => ({ ...s, homeTariff: parseFloat(e.target.value) || 0 }))}
               className="w-full bg-gray-900/60 border border-gray-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
             />
-            <span className="text-gray-500 text-sm whitespace-nowrap">€/kWh</span>
+            <span className="text-gray-400 text-sm whitespace-nowrap">€/kWh</span>
           </div>
-          <p className="text-xs text-gray-600">
+          <p className="text-xs text-gray-500">
             Costo energia dalla rete domestica. Controlla la tua bolletta.
           </p>
         </div>
@@ -107,9 +107,9 @@ export default function SettingsPage() {
               onChange={e => setSettings(s => ({ ...s, publicTariff: parseFloat(e.target.value) || 0 }))}
               className="w-full bg-gray-900/60 border border-gray-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
             />
-            <span className="text-gray-500 text-sm whitespace-nowrap">€/kWh</span>
+            <span className="text-gray-400 text-sm whitespace-nowrap">€/kWh</span>
           </div>
-          <p className="text-xs text-gray-600">
+          <p className="text-xs text-gray-500">
             Tariffa media delle colonnine pubbliche che utilizzi.
           </p>
         </div>
@@ -136,9 +136,9 @@ export default function SettingsPage() {
               onChange={e => setSettings(s => ({ ...s, batteryCapacity: parseFloat(e.target.value) || 67 }))}
               className="w-full bg-gray-900/60 border border-gray-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
             />
-            <span className="text-gray-500 text-sm whitespace-nowrap">kWh</span>
+            <span className="text-gray-400 text-sm whitespace-nowrap">kWh</span>
           </div>
-          <p className="text-xs text-gray-600">
+          <p className="text-xs text-gray-500">
             Usata per calcolare i kWh aggiunti durante le ricariche.
             XC40 Recharge: 69 kWh — EX30: 51 kWh — EX40: 69 kWh
           </p>
@@ -147,10 +147,10 @@ export default function SettingsPage() {
 
       {/* Anteprima calcolo */}
       <div className="rounded-2xl border border-gray-700/30 bg-gray-900/40 p-4 flex flex-col gap-2">
-        <p className="text-xs text-gray-500 font-medium">Anteprima calcolo — ricarica dal 20% al 80%</p>
+        <p className="text-xs text-gray-400 font-medium">Anteprima calcolo — ricarica dal 20% al 80%</p>
         <div className="grid grid-cols-2 gap-3 mt-1">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-gray-500 flex items-center gap-1">
+            <span className="text-xs text-gray-400 flex items-center gap-1">
               <Home size={10} /> Casa
             </span>
             <span className="text-xs text-white">
@@ -158,7 +158,7 @@ export default function SettingsPage() {
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-xs text-gray-500 flex items-center gap-1">
+            <span className="text-xs text-gray-400 flex items-center gap-1">
               <MapPin size={10} /> Colonnina
             </span>
             <span className="text-xs text-white">

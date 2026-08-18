@@ -154,19 +154,19 @@ function GraficoSalute({ dati, oggi }: { dati: Salute; oggi: number }) {
         {griglia.map(v => (
           <g key={v}>
             <line x1={SX} y1={pyKwh(v)} x2={W - DX} y2={pyKwh(v)} stroke="rgb(75 85 99 / 0.25)" strokeDasharray="3 4" />
-            <text x={SX - 6} y={pyKwh(v) + 3} textAnchor="end" fontSize="10" fill="rgb(156 163 175)">
+            <text x={SX - 6} y={pyKwh(v) + 3} textAnchor="end" fontSize="10" fill="rgb(209 213 219)">
               {v}
             </text>
           </g>
         ))}
-        <text x={SX - 6} y={ALTO - 2} textAnchor="end" fontSize="9" fill="rgb(107 114 128)">kWh</text>
+        <text x={SX - 6} y={ALTO - 2} textAnchor="end" fontSize="9" fill="rgb(156 163 175)">kWh</text>
         {[sMin, sMax].map(v => (
-          <text key={v} x={W - DX + 6} y={pySoh(v) + 3} textAnchor="start" fontSize="10" fill="rgb(156 163 175)">
+          <text key={v} x={W - DX + 6} y={pySoh(v) + 3} textAnchor="start" fontSize="10" fill="rgb(209 213 219)">
             {v}%
           </text>
         ))}
         {tacche.map(m => (
-          <text key={m.t} x={px(m.t)} y={H - 8} textAnchor="middle" fontSize="10" fill="rgb(107 114 128)">
+          <text key={m.t} x={px(m.t)} y={H - 8} textAnchor="middle" fontSize="10" fill="rgb(156 163 175)">
             {m.label}
           </text>
         ))}
@@ -209,13 +209,13 @@ function GraficoSalute({ dati, oggi }: { dati: Salute; oggi: number }) {
         ))}
 
         {punti.length === 0 && (
-          <text x={SX + (W - SX - DX) / 2} y={H / 2} textAnchor="middle" fontSize="11" fill="rgb(107 114 128)">
+          <text x={SX + (W - SX - DX) / 2} y={H / 2} textAnchor="middle" fontSize="11" fill="rgb(156 163 175)">
             I punti si depositano: viaggi con ΔSoC ≥ 8, ricariche col contatore su salti ≥ 15
           </text>
         )}
       </svg>
 
-      <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
+      <div className="flex items-center gap-4 text-xs text-gray-400 flex-wrap">
         <span className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-gray-300" />
           viaggi (∫V×I ÷ ΔSoC)
@@ -264,7 +264,7 @@ export default function SalutePage() {
   if (errore) {
     return (
       <div className="max-w-2xl rounded-2xl border border-gray-700/50 bg-gray-800/50 p-6">
-        <p className="text-sm text-gray-500">La pagina Salute non riesce a leggere l&apos;archivio. Riprova.</p>
+        <p className="text-sm text-gray-400">La pagina Salute non riesce a leggere l&apos;archivio. Riprova.</p>
       </div>
     );
   }
@@ -292,7 +292,7 @@ export default function SalutePage() {
           <span className="text-xs text-amber-300/90 bg-amber-400/10 px-2 py-0.5 rounded-full">
             in raccolta · la sentenza matura
           </span>
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-gray-400">
             {puntiCapacita} punt{puntiCapacita === 1 ? 'o' : 'i'} di capacità ·{' '}
             {dati.soh.serie.length} giorn{dati.soh.serie.length === 1 ? 'o' : 'i'} di SoH ·
             tendenza da {PUNTI_MIN_TENDENZA} punti su 4 mesi
@@ -305,18 +305,18 @@ export default function SalutePage() {
       {/* Le tre tessere: ogni numero con la sua provenienza e il suo stato */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="rounded-xl bg-gray-900/60 p-4">
-          <p className="text-xs text-gray-500 mb-1">Capacità di lavoro</p>
+          <p className="text-xs text-gray-400 mb-1">Capacità di lavoro</p>
           <p className="text-2xl text-white font-light">{it(dati.capacitaLavoro, 1)} kWh</p>
-          <p className="text-xs text-gray-600 mt-1">
+          <p className="text-xs text-gray-500 mt-1">
             misurata: in attesa di punti concordi — la promozione è un atto deliberato (§4.4)
           </p>
         </div>
         <div className="rounded-xl bg-gray-900/60 p-4">
-          <p className="text-xs text-gray-500 mb-1">SoH dichiarato</p>
+          <p className="text-xs text-gray-400 mb-1">SoH dichiarato</p>
           <p className="text-2xl text-white font-light">
             {dati.soh.ultimo != null ? `${it(dati.soh.ultimo, 1)}%` : '—'}
           </p>
-          <p className="text-xs text-gray-600 mt-1">
+          <p className="text-xs text-gray-500 mt-1">
             {dati.soh.ultimo == null
               ? 'nessuna lettura ancora'
               : dati.soh.valoriDistinti === 1
@@ -325,11 +325,11 @@ export default function SalutePage() {
           </p>
         </div>
         <div className="rounded-xl bg-gray-900/60 p-4">
-          <p className="text-xs text-gray-500 mb-1">12V a riposo</p>
+          <p className="text-xs text-gray-400 mb-1">12V a riposo</p>
           <p className="text-2xl text-white font-light">
             {ultimaMattina12v ? `${it(ultimaMattina12v.batt12v!, 2)} V` : '—'}
           </p>
-          <p className="text-xs text-gray-600 mt-1">
+          <p className="text-xs text-gray-500 mt-1">
             {ultimaMattina12v
               ? `sonda del ${dataBreve(ultimaMattina12v.ora)} · parassita: non ancora misurabile`
               : mattine === null
@@ -341,7 +341,7 @@ export default function SalutePage() {
         </div>
       </div>
 
-      <p className="text-xs text-gray-600">
+      <p className="text-xs text-gray-500">
         Alimentata da: sonda del buongiorno · coppie muro delle ricariche (salto ≥ 15
         punti) · viaggi con copertura ≥ 95% e ΔSoC ≥ 8 punti · prima sentenza piena
         attesa a febbraio 2027.

@@ -19,7 +19,7 @@ export default function BatteryChart({ snapshots }: { snapshots: Snapshot[] }) {
   if (snapshots.length < 2) {
     return (
       <div className="rounded-2xl border border-gray-700/50 bg-gray-800/50 p-6">
-        <p className="text-gray-500 text-sm text-center">
+        <p className="text-gray-400 text-sm text-center">
           Il grafico apparirà dopo aver raccolto alcuni dati.
         </p>
       </div>

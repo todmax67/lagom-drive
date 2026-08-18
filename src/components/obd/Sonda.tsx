@@ -38,7 +38,7 @@ export default function Sonda({ canale }: { canale: Canale | null }) {
         <span className="text-sm font-medium text-white">Sonda centraline Volvo</span>
       </div>
 
-      <p className="text-xs text-gray-500">
+      <p className="text-xs text-gray-400">
         Imposta priorità, header, filtro di ricezione e flow control, interroga
         tutti i DID noti e rimette la priorità standard alla fine.
       </p>
@@ -52,7 +52,7 @@ export default function Sonda({ canale }: { canale: Canale | null }) {
             className="text-left rounded-lg bg-gray-900/60 border border-gray-700/50 p-2.5 hover:border-purple-500/40 transition-all disabled:opacity-40"
           >
             <p className="text-xs text-white font-medium">{c.nome}</p>
-            <p className="text-xs text-gray-500 font-mono mt-0.5">
+            <p className="text-xs text-gray-400 font-mono mt-0.5">
               {c.ecu} · {c.did.length} DID
             </p>
           </button>
@@ -82,14 +82,14 @@ export default function Sonda({ canale }: { canale: Canale | null }) {
               <p className="text-xs font-mono text-emerald-300">
                 {l.did} → {l.payload!.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('')}
               </p>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-400 mt-1">
                 {l.letture.map(x => `${x.formula}=${x.valore}`).join('  ')}
               </p>
             </div>
           ))}
 
           {senzaRisposta.length > 0 && (
-            <details className="text-xs text-gray-600">
+            <details className="text-xs text-gray-500">
               <summary className="cursor-pointer">
                 {senzaRisposta.length} senza risposta valida
               </summary>

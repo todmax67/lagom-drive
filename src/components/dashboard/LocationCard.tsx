@@ -26,7 +26,7 @@ export default function LocationCard({ location }: { location: VehicleLocation }
             {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}
           </span>
         </div>
-        <p className="text-xs text-gray-500 pl-5">
+        <p className="text-xs text-gray-400 pl-5">
           Direzione: {location.heading}°
         </p>
       </div>
@@ -39,7 +39,7 @@ export default function LocationCard({ location }: { location: VehicleLocation }
         Apri in Google Maps →
       </button>
 
-      <p className="text-xs text-gray-600 text-right">
+      <p className="text-xs text-gray-500 text-right">
         Aggiornato: {new Date(location.lastUpdated).toLocaleTimeString('it-IT')}
       </p>
     </div>

@@ -383,14 +383,14 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
             <span className={`text-xs px-2 py-0.5 rounded-full ${
               regime === 'viaggio'
                 ? 'text-blue-300 bg-blue-400/10'
-                : 'text-gray-500 bg-gray-700/40'
+                : 'text-gray-400 bg-gray-700/40'
             }`}>
               {regime === 'viaggio' ? 'viaggio · V×I a 1 Hz' : 'sosta'}
             </span>
           )}
         </span>
         {conteggi.letti > 0 && (
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-gray-400">
             {conteggi.letti} letti · {conteggi.inviati} salvati
             {conteggi.duplicati > 0 && ` · ${conteggi.duplicati} già presenti`}
             {conteggi.scartati > 0 && ` · ${conteggi.scartati} scartati`}
@@ -427,7 +427,7 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
       </button>
 
       {attivo && (gpsStato === 'negato' || gpsStato === 'assente') && (
-        <p className="text-xs text-gray-600">
+        <p className="text-xs text-gray-500">
           GPS non disponibile: il regime viaggio si regge sulla velocità del
           bus, letta ai giri di servizio.
         </p>
@@ -439,7 +439,7 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
             const v = ultimo[pid.campo];
             return (
               <div key={pid.comando} className="rounded-lg bg-gray-900/60 p-2.5">
-                <p className="text-xs text-gray-500 mb-1">{pid.etichetta}</p>
+                <p className="text-xs text-gray-400 mb-1">{pid.etichetta}</p>
                 <p className="text-sm text-white font-light">
                   {v === undefined ? 'n/d' : `${v.toFixed(2)} ${pid.unita}`}
                 </p>
@@ -456,7 +456,7 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
         </p>
       )}
 
-      <p className="text-xs text-gray-600">
+      <p className="text-xs text-gray-500">
         Lo schermo resta acceso durante la registrazione: una PWA non mantiene la
         connessione Bluetooth in secondo piano, quindi l&apos;app deve restare in primo piano.
       </p>

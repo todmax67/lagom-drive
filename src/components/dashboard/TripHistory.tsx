@@ -301,7 +301,7 @@ function GraficoPotenza({ profilo }: { profilo: Profilo }) {
         ))}
         <line x1={0} y1={base} x2={W} y2={base} stroke="rgb(75 85 99 / 0.6)" strokeWidth={1} />
       </svg>
-      <div className="flex items-center gap-4 text-xs text-gray-500">
+      <div className="flex items-center gap-4 text-xs text-gray-400">
         <span className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-sm bg-orange-400/80" />
           potenza spesa
@@ -413,7 +413,7 @@ function CardMisurata({
           <p className="text-sm font-medium text-white">
             {dataGiorno(trip.startedAt)} · {ora(inizio)} {fine && <>→ {ora(fine)}</>}
           </p>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-xs text-gray-400 mt-0.5">
             {km != null && `${it(km, 1)} km`}
             {fine && ` · ${formatDuration(inizio, fine)}`}
             {profilo?.ambientC != null && ` · ${Math.round(profilo.ambientC)} °C`}
@@ -461,7 +461,7 @@ function CardMisurata({
 
       {/* Calce: la copertura dichiara, il punto di capacità deposita */}
       <div className="flex items-center justify-between gap-2 border-t border-gray-700/50 pt-2.5 flex-wrap">
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-gray-400">
           {/* floor, non round: "100%" solo a copertura piena */}
           Copertura {Math.floor((obd.powerCoverage ?? 0) * 100)}%
           {obd.movingStart && obd.movingEnd && ' · tempi rifiniti dai campioni'}
@@ -503,7 +503,7 @@ function CardCompatta({ trip }: { trip: Trip }) {
         <p className="text-sm font-medium text-white">
           {dataGiorno(trip.startedAt)} · {ora(rifinito ? trip.obd!.movingStart! : trip.startedAt)}
         </p>
-        <p className="text-xs text-gray-500 mt-0.5">
+        <p className="text-xs text-gray-400 mt-0.5">
           {trip.distanceKm != null ? `${it(trip.distanceKm, 1)} km` : 'distanza n/d'}
           {` · ${rifinito
             ? formatDuration(trip.obd!.movingStart!, trip.obd!.movingEnd!)
@@ -512,7 +512,7 @@ function CardCompatta({ trip }: { trip: Trip }) {
             ` · ${Math.round(socInizio)} → ${Math.round(socFine)}%`}
         </p>
         {obdParziale && (
-          <p className="text-xs text-gray-600 mt-0.5">
+          <p className="text-xs text-gray-500 mt-0.5">
             OBD parziale · copertura {Math.floor((trip.obd!.coverage ?? 0) * 100)}%
           </p>
         )}
@@ -520,7 +520,7 @@ function CardCompatta({ trip }: { trip: Trip }) {
       {consumo && (
         <div className="text-right shrink-0">
           <p className="text-sm text-white font-light tabular-nums">
-            {it(consumo.valore, 1)} <span className="text-gray-500 text-xs">kWh/100 km</span>
+            {it(consumo.valore, 1)} <span className="text-gray-400 text-xs">kWh/100 km</span>
           </p>
           <span className="inline-block mt-1 text-xs text-gray-400 bg-gray-700/40 px-2 py-0.5 rounded-full">
             dedotto · ΔSoC × capacità
@@ -554,7 +554,7 @@ export default function TripHistory({ onSalute }: { onSalute?: () => void }) {
   if (trips.length === 0) {
     return (
       <div className="rounded-2xl border border-gray-700/50 bg-gray-800/50 p-6">
-        <p className="text-gray-500 text-sm text-center">
+        <p className="text-gray-400 text-sm text-center">
           Nessun viaggio registrato ancora. I viaggi appariranno automaticamente quando guidi.
         </p>
       </div>
