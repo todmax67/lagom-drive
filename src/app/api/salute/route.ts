@@ -40,21 +40,26 @@ export async function GET() {
       orderBy: { recordedAt: 'asc' },
       select: { recordedAt: true, soh: true },
     }),
+    // Niente filtro su copertura e SoC qui: la ricomposizione dei ritagli
+    // (sotto) giudica la CATENA, non il singolo ritaglio — un ritaglio con
+    // copertura 0.93 può appartenere a una guida che pesata fa 0.96, e i SoC
+    // servono solo al primo e all'ultimo anello.
     prisma.tripEnrichment.findMany({
       where: {
         userId,
-        powerCoverage: { gte: COPERTURA_MIN },
-        socStartObd: { not: null },
-        socEndObd: { not: null },
         energyGrossKwh: { not: null },
         energyRegenGrossKwh: { not: null },
       },
       select: {
         tripId: true,
+        sessionId: true,
         socStartObd: true,
         socEndObd: true,
         energyGrossKwh: true,
         energyRegenGrossKwh: true,
+        powerCoverage: true,
+        movingStart: true,
+        movingEnd: true,
       },
     }).catch(() => []),
     prisma.chargingSession.findMany({
@@ -81,22 +86,71 @@ export async function GET() {
   const sohSerie = [...perGiorno.values()].map(p => ({ t: p.t.toISOString(), v: p.v }));
   const valoriDistinti = new Set(letture.map(l => l.soh!.toFixed(2))).size;
 
-  // Testimone C: la data del punto è quella del viaggio, non dell'arricchimento
-  const viaggiDate = new Map(
+  // Testimone C: i ritagli si ricompongono PRIMA di giudicare, con le stesse
+  // regole della card viaggi (ricomponi in TripHistory): contigui entro 3
+  // minuti con la stessa sessione OBD sono una guida sola. Senza questo, la
+  // card fusa promette un punto che qui non esiste (ritagli da ΔSoC 5+6), o
+  // la stessa guida pesa due volte nella serie (ritagli da 9+10). La copertura
+  // si pesa sulla durata dei ritagli; il ΔSoC va dal primo all'ultimo anello.
+  const infoViaggi = new Map(
     (
       await prisma.trip.findMany({
         where: { id: { in: arricchimenti.map(a => a.tripId) } },
-        select: { id: true, startedAt: true },
+        select: { id: true, startedAt: true, endedAt: true },
       })
-    ).map(t => [t.id, t.startedAt])
+    ).map(t => [t.id, t])
   );
-  const viaggi = arricchimenti
-    .map(a => {
-      const deltaSoc = a.socStartObd! - a.socEndObd!;
-      const netto = a.energyGrossKwh! - a.energyRegenGrossKwh!;
-      const t = viaggiDate.get(a.tripId);
-      if (!t || deltaSoc < DELTA_SOC_MIN_VIAGGI || netto <= 0) return null;
-      return { t: t.toISOString(), kwh: (netto / deltaSoc) * 100 };
+  const righe = arricchimenti
+    .flatMap(a => {
+      const t = infoViaggi.get(a.tripId);
+      return t ? [{ ...a, startedAt: t.startedAt, endedAt: t.endedAt }] : [];
+    })
+    .sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
+
+  const catene: (typeof righe)[] = [];
+  for (const r of righe) {
+    const catena = catene[catene.length - 1];
+    const prec = catena?.[catena.length - 1];
+    if (
+      prec &&
+      r.sessionId != null &&
+      r.sessionId === prec.sessionId &&
+      prec.endedAt &&
+      Math.abs(r.startedAt.getTime() - prec.endedAt.getTime()) < 3 * 60 * 1000
+    ) {
+      catena.push(r);
+    } else {
+      catene.push([r]);
+    }
+  }
+
+  const viaggi = catene
+    .map(catena => {
+      const primo = catena[0];
+      const ultimo = catena[catena.length - 1];
+      if (primo.socStartObd == null || ultimo.socEndObd == null) return null;
+      const deltaSoc = primo.socStartObd - ultimo.socEndObd;
+      let netto = 0;
+      let pesoTot = 0;
+      let coperturaPesata = 0;
+      for (const r of catena) {
+        if (r.powerCoverage == null) return null;
+        netto += r.energyGrossKwh! - r.energyRegenGrossKwh!;
+        const da = r.movingStart ?? r.startedAt;
+        const a = r.movingEnd ?? r.endedAt ?? r.startedAt;
+        const peso = Math.max(0, a.getTime() - da.getTime());
+        pesoTot += peso;
+        coperturaPesata += r.powerCoverage * peso;
+      }
+      const copertura =
+        pesoTot > 0
+          ? coperturaPesata / pesoTot
+          : catena.length === 1
+            ? catena[0].powerCoverage!
+            : null;
+      if (copertura == null || copertura < COPERTURA_MIN) return null;
+      if (deltaSoc < DELTA_SOC_MIN_VIAGGI || netto <= 0) return null;
+      return { t: primo.startedAt.toISOString(), kwh: (netto / deltaSoc) * 100 };
     })
     .filter((x): x is { t: string; kwh: number } => x !== null)
     .sort((a, b) => a.t.localeCompare(b.t));

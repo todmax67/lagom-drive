@@ -80,8 +80,28 @@ function GraficoSalute({ dati, oggi }: { dati: Salute; oggi: number }) {
   if (x1 - x0 < 30 * GIORNO_MS) x0 = x1 - 30 * GIORNO_MS;
   x0 -= 2 * GIORNO_MS;
 
-  // Dominio Y sinistro (kWh): fisso e largo finché i punti non chiedono altro
-  const kwhValori = punti.map(p => p.kwh);
+  // La tendenza si calcola PRIMA dei domini: i suoi estremi disegnati devono
+  // entrare nel dominio Y, o la retta estrapolata a oggi sfora il riquadro.
+  // Regressione sui soli punti dei viaggi (il muro contiene η: metro diverso).
+  const vt = dati.viaggi.map(p => ({ x: Date.parse(p.t), y: p.kwh }));
+  const spanGiorni = vt.length ? (vt[vt.length - 1].x - vt[0].x) / GIORNO_MS : 0;
+  let tendenza: { a: number; b: number } | null = null;
+  if (vt.length >= PUNTI_MIN_TENDENZA && spanGiorni >= GIORNI_MIN_TENDENZA) {
+    const mx = vt.reduce((s, p) => s + p.x, 0) / vt.length;
+    const my = vt.reduce((s, p) => s + p.y, 0) / vt.length;
+    const num = vt.reduce((s, p) => s + (p.x - mx) * (p.y - my), 0);
+    const den = vt.reduce((s, p) => s + (p.x - mx) ** 2, 0);
+    if (den > 0) tendenza = { b: num / den, a: my - (num / den) * mx };
+  }
+
+  // Dominio Y sinistro (kWh): fisso e largo finché i punti non chiedono altro;
+  // gli estremi della retta di tendenza contano come punti da contenere
+  const kwhValori = [
+    ...punti.map(p => p.kwh),
+    ...(tendenza
+      ? [tendenza.a + tendenza.b * vt[0].x, tendenza.a + tendenza.b * oggi]
+      : []),
+  ];
   const yMin = Math.min(58, ...kwhValori.map(v => Math.floor(v - 2)));
   const yMax = Math.max(70, ...kwhValori.map(v => Math.ceil(v + 2)));
   // Dominio Y destro (%): la banda del SoH
@@ -93,19 +113,27 @@ function GraficoSalute({ dati, oggi }: { dati: Salute; oggi: number }) {
   const pyKwh = (v: number) => ALTO + (1 - (v - yMin) / (yMax - yMin)) * (H - ALTO - BASSO);
   const pySoh = (v: number) => ALTO + (1 - (v - sMin) / (sMax - sMin)) * (H - ALTO - BASSO);
 
-  // Tacche X: i primi del mese dentro il dominio (o il dominio stesso se corto)
+  // Tacche X: i primi del mese dentro il dominio, con passo adattivo — su
+  // domini lunghi le mensilità si diraderebbero da sole in un ammasso
+  // illeggibile, e i mesi più recenti resterebbero senza etichetta col cap.
+  // Gennaio porta l'anno, che a passo largo è l'informazione che conta.
+  const mesiDominio = (x1 - x0) / (30.44 * GIORNO_MS);
+  const passoMesi = Math.max(1, Math.ceil(mesiDominio / 10));
   const tacche: { t: number; label: string }[] = [];
   const cursore = new Date(x0);
   cursore.setDate(1);
   cursore.setHours(0, 0, 0, 0);
-  for (let i = 0; i < 24; i++) {
-    cursore.setMonth(cursore.getMonth() + 1);
+  for (let i = 0; i < 60; i++) {
+    cursore.setMonth(cursore.getMonth() + passoMesi);
     const t = cursore.getTime();
     if (t > x1) break;
     if (t >= x0)
       tacche.push({
         t,
-        label: cursore.toLocaleDateString('it-IT', { month: 'short' }),
+        label:
+          cursore.getMonth() === 0
+            ? cursore.toLocaleDateString('it-IT', { month: 'short', year: '2-digit' })
+            : cursore.toLocaleDateString('it-IT', { month: 'short' }),
       });
   }
   if (tacche.length === 0) {
@@ -114,19 +142,6 @@ function GraficoSalute({ dati, oggi }: { dati: Salute; oggi: number }) {
 
   // Griglia Y sinistra: 4 livelli equidistanti arrotondati al kWh
   const griglia = [0, 1, 2, 3].map(i => Math.round(yMin + ((yMax - yMin) * i) / 3));
-
-  // La tendenza solo quando la serie la regge: regressione sui soli punti dei
-  // viaggi (il muro contiene η: è un metro diverso, non si mescola)
-  const vt = dati.viaggi.map(p => ({ x: Date.parse(p.t), y: p.kwh }));
-  const spanGiorni = vt.length ? (vt[vt.length - 1].x - vt[0].x) / GIORNO_MS : 0;
-  let tendenza: { a: number; b: number } | null = null;
-  if (vt.length >= PUNTI_MIN_TENDENZA && spanGiorni >= GIORNI_MIN_TENDENZA) {
-    const mx = vt.reduce((s, p) => s + p.x, 0) / vt.length;
-    const my = vt.reduce((s, p) => s + p.y, 0) / vt.length;
-    const num = vt.reduce((s, p) => s + (p.x - mx) * (p.y - my), 0);
-    const den = vt.reduce((s, p) => s + (p.x - mx) ** 2, 0);
-    if (den > 0) tendenza = { b: num / den, a: my - (num / den) * mx };
-  }
 
   return (
     <div className="rounded-xl bg-gray-900/60 p-4 flex flex-col gap-3">
@@ -190,7 +205,7 @@ function GraficoSalute({ dati, oggi }: { dati: Salute; oggi: number }) {
 
         {punti.length === 0 && (
           <text x={SX + (W - SX - DX) / 2} y={H / 2} textAnchor="middle" fontSize="11" fill="rgb(107 114 128)">
-            I punti di capacità si depositano: viaggi con ΔSoC ≥ 8 e ricariche col contatore
+            I punti si depositano: viaggi con ΔSoC ≥ 8, ricariche col contatore su salti ≥ 15
           </text>
         )}
       </svg>
@@ -206,7 +221,9 @@ function GraficoSalute({ dati, oggi }: { dati: Salute; oggi: number }) {
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-2 h-2 rotate-45 bg-violet-400" />
-          SoH BECM, in validazione
+          {/* "In validazione" finché il registro non è stato visto muoversi:
+              quando i valori distinti diventano due, l'etichetta cade da sola */}
+          SoH BECM{dati.soh.valoriDistinti === 1 ? ', in validazione' : ''}
         </span>
         {tendenza && (
           <span className="flex items-center gap-1.5">
@@ -221,7 +238,9 @@ function GraficoSalute({ dati, oggi }: { dati: Salute; oggi: number }) {
 
 export default function SalutePage() {
   const [dati, setDati] = useState<Salute | null>(null);
-  const [mattine, setMattine] = useState<Mattina[] | null>(null);
+  // Tre stati, non due: undefined = in volo, null = fetch fallita, array = dati.
+  // Il guasto non deve travestirsi da assenza di sonde: sono fatti diversi.
+  const [mattine, setMattine] = useState<Mattina[] | null | undefined>(undefined);
   const [errore, setErrore] = useState(false);
   // "Oggi" fissato al mount: il render deve restare puro (react-hooks/purity)
   const [oggi] = useState(() => Date.now());
@@ -233,8 +252,8 @@ export default function SalutePage() {
       .catch(() => setErrore(true));
     fetch('/api/obd/buongiorno')
       .then(r => (r.ok ? r.json() : Promise.reject()))
-      .then(d => { if (Array.isArray(d.mattine)) setMattine(d.mattine); })
-      .catch(() => {});
+      .then(d => setMattine(Array.isArray(d.mattine) ? d.mattine : null))
+      .catch(() => setMattine(null));
   }, []);
 
   if (errore) {
@@ -308,14 +327,19 @@ export default function SalutePage() {
           <p className="text-xs text-gray-600 mt-1">
             {ultimaMattina12v
               ? `sonda del ${dataBreve(ultimaMattina12v.ora)} · parassita: non ancora misurabile`
-              : 'in attesa della sonda del buongiorno'}
+              : mattine === null
+                ? 'sonda non leggibile ora: la fonte non ha risposto'
+                : mattine === undefined
+                  ? '…'
+                  : 'in attesa della sonda del buongiorno'}
           </p>
         </div>
       </div>
 
       <p className="text-xs text-gray-600">
-        Alimentata da: sonda del buongiorno · coppie muro delle ricariche · viaggi con
-        copertura ≥ 95% e ΔSoC ≥ 8 punti · prima sentenza piena attesa a febbraio 2027.
+        Alimentata da: sonda del buongiorno · coppie muro delle ricariche (salto ≥ 15
+        punti) · viaggi con copertura ≥ 95% e ΔSoC ≥ 8 punti · prima sentenza piena
+        attesa a febbraio 2027.
       </p>
     </div>
   );
