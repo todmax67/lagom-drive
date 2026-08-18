@@ -72,7 +72,30 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: 'JSON non valido' }, { status: 400 });
   }
 
-  const samples = (body as { samples?: unknown })?.samples;
+  const corpo = body as {
+    samples?: unknown;
+    sessionId?: unknown;
+    context?: unknown;
+    appVersion?: unknown;
+  };
+  const samples = corpo?.samples;
+
+  // La sessione dichiarata (bussola par. 5.2): id dal client, contesto da una
+  // lista chiusa, versione dell'app. Tutto opzionale — i client vecchi e gli
+  // script non dichiarano niente — ma se arriva, arriva ben formato.
+  const sessionId =
+    typeof corpo.sessionId === 'string' && /^[0-9a-fA-F-]{8,64}$/.test(corpo.sessionId)
+      ? corpo.sessionId
+      : null;
+  const CONTESTI = ['buongiorno', 'viaggio', 'carica', 'libero'];
+  const context =
+    typeof corpo.context === 'string' && CONTESTI.includes(corpo.context)
+      ? corpo.context
+      : 'libero';
+  const appVersion =
+    typeof corpo.appVersion === 'string' && /^[\w.-]{1,40}$/.test(corpo.appVersion)
+      ? corpo.appVersion
+      : null;
   if (!Array.isArray(samples)) {
     return NextResponse.json({ message: 'Campo samples mancante' }, { status: 400 });
   }
@@ -124,7 +147,7 @@ export async function POST(request: Request) {
       if (voci.length) didRaw = Object.fromEntries(voci) as Record<string, string>;
     }
 
-    rows.push({ userId: device.userId, deviceId: device.id, recordedAt, ...metrics, didRaw });
+    rows.push({ userId: device.userId, deviceId: device.id, recordedAt, sessionId, ...metrics, didRaw });
   }
 
   // skipDuplicates rende il rinvio innocuo: un dongle che va in timeout dopo
@@ -139,6 +162,45 @@ export async function POST(request: Request) {
     where: { id: device.id },
     data: { lastSeen: new Date() },
   });
+
+  // La riga della sessione: nasce col primo lotto, si allunga con gli altri.
+  // startedAt puo' solo arretrare e endedAt solo avanzare: un lotto in ritardo
+  // (la coda della galleria) non deve accorciare una sessione gia' scritta.
+  if (sessionId && rows.length > 0) {
+    const tempi = rows.map(r => r.recordedAt.getTime());
+    const inizio = new Date(Math.min(...tempi));
+    const fine = new Date(Math.max(...tempi));
+    try {
+      await prisma.obdSession.upsert({
+        where: { id: sessionId },
+        create: {
+          id: sessionId,
+          userId: device.userId,
+          deviceId: device.id,
+          context,
+          startedAt: inizio,
+          endedAt: fine,
+          appVersion,
+        },
+        update: {},
+      });
+      await prisma.obdSession.updateMany({
+        where: { id: sessionId, userId: device.userId, startedAt: { gt: inizio } },
+        data: { startedAt: inizio },
+      });
+      await prisma.obdSession.updateMany({
+        where: {
+          id: sessionId,
+          userId: device.userId,
+          OR: [{ endedAt: null }, { endedAt: { lt: fine } }],
+        },
+        data: { endedAt: fine },
+      });
+    } catch (err) {
+      // La sessione e' metadato: un suo intoppo non deve respingere i campioni
+      console.error('Ingest: errore sulla sessione', sessionId, err);
+    }
+  }
 
   // Un lotto nuovo può riempire buchi di viaggi già arricchiti: si ricalcolano
   // i viaggi che si sovrappongono all'intervallo del lotto. Con `after` il

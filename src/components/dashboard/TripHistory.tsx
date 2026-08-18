@@ -29,7 +29,88 @@ interface Trip {
     energyGrossKwh: number | null;
     energyRegenGrossKwh: number | null;
     powerCoverage: number | null;
+    sessionId: string | null;
   } | null;
+  // Quanti ritagli cloud compone questa card (1 = viaggio normale)
+  ritagli?: number;
+}
+
+/**
+ * La ricomposizione (bussola par. 5.2): l'odometro intero frammenta una guida
+ * nei ritagli dei semafori, ma la sessione OBD sa che era una. Viaggi contigui
+ * (meno di 3 minuti fra fine e inizio) con la STESSA sessione si fondono in
+ * una card sola: km sommati, batteria dal primo all'ultimo, integrali sommati
+ * — le finestre di aggancio si spartiscono i campioni, quindi la somma non
+ * conta niente due volte. Il rilevatore non viene toccato: i ritagli restano
+ * in tabella, è la presentazione che li ricompone.
+ */
+function ricomponi(viaggi: Trip[]): Trip[] {
+  const out: Trip[] = [];
+  let gruppo: Trip[] = [];
+
+  const stessaGuida = (nuovo: Trip, prec: Trip) =>
+    nuovo.obd?.sessionId != null &&
+    nuovo.obd.sessionId === prec.obd?.sessionId &&
+    prec.endedAt !== null &&
+    Math.abs(Date.parse(nuovo.startedAt) - Date.parse(prec.endedAt)) < 3 * 60 * 1000;
+
+  const chiudi = () => {
+    if (!gruppo.length) return;
+    if (gruppo.length === 1) { out.push(gruppo[0]); gruppo = []; return; }
+    // la lista arriva dal piu' recente: il primo del gruppo e' l'ultimo ritaglio
+    const vecchio = gruppo[gruppo.length - 1];
+    const nuovo = gruppo[0];
+    const somma = (f: (t: Trip) => number | null | undefined) => {
+      let s = 0;
+      for (const v of gruppo) { const x = f(v); if (x == null) return null; s += x; }
+      return s;
+    };
+    const minPot = gruppo.every(v => v.obd?.powerCoverage != null)
+      ? Math.min(...gruppo.map(v => v.obd!.powerCoverage!))
+      : null;
+    out.push({
+      id: gruppo.map(v => v.id).join('+'),
+      startedAt: vecchio.startedAt,
+      endedAt: nuovo.endedAt,
+      distanceKm: somma(v => v.distanceKm),
+      startBattery: vecchio.startBattery,
+      endBattery: nuovo.endBattery,
+      energyUsedKwh: somma(v => v.energyUsedKwh),
+      energyRegenKwh: null,
+      avgConsumption: null,
+      volvoAvgConsumption: null,
+      ritagli: gruppo.length,
+      obd: {
+        coverage: Math.min(...gruppo.map(v => v.obd!.coverage)),
+        sampleCount: gruppo.reduce((s, v) => s + (v.obd?.sampleCount ?? 0), 0),
+        distanceObdKm: somma(v => v.obd?.distanceObdKm),
+        maxSpeedKmh: gruppo.some(v => v.obd?.maxSpeedKmh != null)
+          ? Math.max(...gruppo.map(v => v.obd?.maxSpeedKmh ?? 0))
+          : null,
+        socStartObd: vecchio.obd?.socStartObd ?? null,
+        socEndObd: nuovo.obd?.socEndObd ?? null,
+        movingStart: vecchio.obd?.movingStart ?? null,
+        movingEnd: nuovo.obd?.movingEnd ?? null,
+        energyGrossKwh: somma(v => v.obd?.energyGrossKwh),
+        energyRegenGrossKwh: somma(v => v.obd?.energyRegenGrossKwh),
+        powerCoverage: minPot,
+        sessionId: nuovo.obd?.sessionId ?? null,
+      },
+    });
+    gruppo = [];
+  };
+
+  for (const v of viaggi) {
+    // La lista è dal più recente: v è più vecchio dell'ultimo del gruppo.
+    if (gruppo.length && stessaGuida(gruppo[gruppo.length - 1], v)) {
+      gruppo.push(v);
+      continue;
+    }
+    chiudi();
+    gruppo = [v];
+  }
+  chiudi();
+  return out;
 }
 
 // Sopra questa copertura il titolo del consumo diventa livello 1: integrato
@@ -124,7 +205,7 @@ export default function TripHistory() {
       </span>
 
       <div className="flex flex-col gap-3">
-        {trips.map(trip => (
+        {ricomponi(trips).map(trip => (
           <div key={trip.id} className="rounded-xl bg-gray-900/60 p-4 flex flex-col gap-3">
             {/* Header */}
             <div className="flex items-center justify-between">
@@ -135,6 +216,11 @@ export default function TripHistory() {
                 </span>
               </div>
               <span className="text-xs text-gray-500">
+                {trip.ritagli != null && trip.ritagli > 1 && (
+                  <span className="text-teal-300/80 mr-2">
+                    {trip.ritagli} ritagli ricomposti · sessione OBD
+                  </span>
+                )}
                 {formatDate(trip.startedAt)}
               </span>
             </div>

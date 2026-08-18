@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useSyncExternalStore } from 'react';
+import { useRef, useState, useSyncExternalStore } from 'react';
 import { Sunrise, Check, Upload } from 'lucide-react';
 import { eseguiBuongiorno, type EsitoBuongiorno } from '@/lib/buongiorno';
 import { sottoscriviToken, leggiToken } from '@/lib/token-dispositivo';
@@ -18,6 +18,7 @@ export default function Buongiorno({ canale }: { canale: Canale | null }) {
   const occupazione = useSyncExternalStore(sottoscriviOccupazione, leggiOccupazione, () => null);
   const [inCorso, setInCorso] = useState(false);
   const [daInviare, setDaInviare] = useState<Campione | null>(null);
+  const idSessioneRef = useRef<string | null>(null);
   const [passo, setPasso] = useState<string | null>(null);
   const [esito, setEsito] = useState<EsitoBuongiorno | null>(null);
   const [salvataggio, setSalvataggio] = useState<string | null>(null);
@@ -31,7 +32,12 @@ export default function Buongiorno({ canale }: { canale: Canale | null }) {
       const r = await fetch('/api/obd/ingest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ samples: [campione] }),
+        body: JSON.stringify({
+          samples: [campione],
+          sessionId: idSessioneRef.current,
+          context: 'buongiorno',
+          appVersion: process.env.NEXT_PUBLIC_APP_SHA,
+        }),
       });
       const d = await r.json();
       if (!r.ok) {
@@ -64,6 +70,7 @@ export default function Buongiorno({ canale }: { canale: Canale | null }) {
     setEsito(null);
     setSalvataggio(null);
     occupaCanale('buongiorno');
+    idSessioneRef.current = crypto.randomUUID();
     try {
       const risultato = await eseguiBuongiorno(canale.invia, setPasso);
       setEsito(risultato);
