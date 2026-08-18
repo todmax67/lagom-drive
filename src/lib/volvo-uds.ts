@@ -232,7 +232,7 @@ export async function sondaCentralina(
 export const DID_DA_REGISTRARE: {
   did: string;
   etichetta: string;
-  campo?: 'packVoltage' | 'coolantInletC' | 'coolantOutletC' | 'batt12vVoltage' | 'soh' | 'odometer';
+  campo?: 'packVoltage' | 'coolantInletC' | 'coolantOutletC' | 'batt12vVoltage' | 'soh' | 'odometer' | 'packCurrent';
   converti?: (b: number[]) => number | null;
 }[] = [
   {
@@ -286,10 +286,23 @@ export const DID_DA_REGISTRARE: {
     campo: 'soh',
     converti: b => (b.length >= 2 ? ((b[b.length - 2] * 256 + b[b.length - 1]) / 100) : null),
   },
-  // Payload di tre byte, l'ultimo sempre 03. I primi due valgono 62-71 ad auto
-  // sveglia e zero esatto dopo una notte ferma: si comporta come una corrente,
-  // ma la scala non è ancora fissata e 0.1 A resta un'ipotesi.
-  { did: '224802', etichetta: 'Candidato corrente' },
+  {
+    // PROMOSSO (18 ago 2026), ed era il "candidato corrente" del primo
+    // giorno: nella cattura in guida i primi due byte con segno spaziano da
+    // -1569 a +1779 su 1383 letture — -157 A in recupero, +178 in
+    // accelerazione, zero a riposo, con la tensione che affonda a 381 V sotto
+    // carico. La firma della corrente di pacco, /10. Il terzo byte (sempre
+    // 03) resta non interpretato. Con V e I tipizzati, la potenza è V*I:
+    // il DID della potenza non serve piu' cercarlo.
+    did: '224802',
+    etichetta: 'Corrente di pacco',
+    campo: 'packCurrent',
+    converti: b => {
+      if (b.length < 2) return null;
+      const u = b[0] * 256 + b[1];
+      return (u > 0x7fff ? u - 0x10000 : u) / 10;
+    },
+  },
   { did: '224858', etichetta: 'Secondo bus HV' },
   { did: '224A58', etichetta: 'Piccolo valore con segno' },
 ];
