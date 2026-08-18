@@ -20,12 +20,9 @@ function Ponte() {
   const [codice, setCodice] = useState<string | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
 
+  // La sfida assente non è uno stato: si giudica a render (sotto)
   useEffect(() => {
-    if (esito === 'scaduto') return;
-    if (!sfida) {
-      setErrore('Manca la sfida del guscio: rifai il passaggio dall’app.');
-      return;
-    }
+    if (esito === 'scaduto' || !sfida) return;
     fetch('/api/ponte/crea', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -56,7 +53,13 @@ function Ponte() {
           </p>
         )}
 
-        {errore && <p className="text-sm text-amber-200">{errore}</p>}
+        {(errore ?? (!sfida && esito !== 'scaduto'
+          ? 'Manca la sfida del guscio: rifai il passaggio dall’app.'
+          : null)) && (
+          <p className="text-sm text-amber-200">
+            {errore ?? 'Manca la sfida del guscio: rifai il passaggio dall’app.'}
+          </p>
+        )}
 
         {codice && (
           <>
@@ -73,7 +76,7 @@ function Ponte() {
             </a>
           </>
         )}
-        {!codice && !errore && esito !== 'scaduto' && (
+        {!codice && !errore && sfida && esito !== 'scaduto' && (
           <p className="text-sm text-gray-500">Preparo il codice…</p>
         )}
       </div>
