@@ -138,6 +138,15 @@ export default function ObdPage() {
 
   const handleCollega = async () => {
     setOccupato(true);
+    // Ricollegare sopra un canale vivo manderebbe l'ATZ dell'INIT in mezzo a
+    // un giro di lettura (trappola 5.3.1): prima si chiude il vecchio, con
+    // una pausa perché il ciclo morente veda il canale sparito e si spenga
+    if (canaleRef.current) {
+      volutoRef.current = true;
+      canaleRef.current.disconnetti();
+      pubblicaCanale(null);
+      await new Promise(r => setTimeout(r, 800));
+    }
     let esito: Awaited<ReturnType<typeof ricollega>> = null;
     try {
       esito = nativo() ? await collegaNativo(false) : await collega();

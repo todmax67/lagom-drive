@@ -83,6 +83,12 @@ export default function Registratore({
   // dell'auto-avvio già consumato per questo canale
   const presidioVivoRef = useRef(presidio);
   const autoAvviatoRef = useRef(false);
+  // true mentre il corpo del ciclo gira: il mutex del canale si rilascia
+  // all'uscita VERA del ciclo, non in ferma() — il giro in corso può avere
+  // ancora 15-25 s di comandi sul filo (trappola 5.3.1)
+  const cicloVivoRef = useRef(false);
+  // Guardia anti-sovrapposizione per gli invii sparati senza attesa
+  const invioInCorsoRef = useRef(false);
   const [regime, setRegime] = useState<'sosta' | 'viaggio'>('sosta');
   const [gpsStato, setGpsStato] = useState<'ok' | 'negato' | 'assente' | null>(null);
 
@@ -161,6 +167,33 @@ export default function Registratore({
     }
   }, [token]);
 
+  // L'invio dal ciclo si spara e si prosegue: in galleria una fetch appesa
+  // sui ritardi TCP farebbe crollare la cadenza V×I da 1 Hz al timeout di
+  // rete — e la copertura del livello 1 morirebbe proprio dove serve di più.
+  // La guardia evita invii sovrapposti (il dedupe server rende innocuo il resto).
+  const svuotaSenzaAttesa = useCallback(() => {
+    if (invioInCorsoRef.current) return;
+    invioInCorsoRef.current = true;
+    svuota().finally(() => {
+      invioInCorsoRef.current = false;
+    });
+  }, [svuota]);
+
+  // Tutto il buffer, non una fetta sola: alla fermata nessuno richiamerebbe
+  // l'invio e i resti morirebbero in RAM. La guardia sul progresso evita il
+  // giro infinito a rete giù (la fetta fallita torna in coda com'era).
+  const svuotaTutto = useCallback(async () => {
+    while (bufferRef.current.length > 0) {
+      const prima = bufferRef.current.length;
+      await svuota();
+      if (bufferRef.current.length >= prima) break;
+    }
+  }, [svuota]);
+  const svuotaTuttoRef = useRef(svuotaTutto);
+  useEffect(() => {
+    svuotaTuttoRef.current = svuotaTutto;
+  }, [svuotaTutto]);
+
   const avviaGps = () => {
     if (!navigator.geolocation) { setGpsStato('assente'); return; }
     gpsWatchRef.current = navigator.geolocation.watchPosition(
@@ -231,6 +264,12 @@ export default function Registratore({
     // Ogni avvio invalida i cicli precedenti; il vecchio, al risveglio, trova
     // il token cambiato, esce e passa dal suo ripristino.
     if (!canale || attivoRef.current) return;
+    if (cicloVivoRef.current) {
+      // Il ciclo precedente sta ancora chiudendo il suo ultimo giro (fino a
+      // 25 s di giro lento): partire ora metterebbe due scrittori sul filo
+      setMessaggio('Attendo la chiusura del giro precedente…');
+      return;
+    }
     const mioId = ++sessioneRef.current;
     const ripresa =
       presidio &&
@@ -292,7 +331,8 @@ export default function Registratore({
     const vivo = () => attivoRef.current && sessioneRef.current === mioId;
 
     const ciclo = async () => {
-      while (vivo()) {
+      try {
+        while (vivo()) {
         const inizio = Date.now();
         const viaggio = inMovimento();
         if (viaggio) contestoRef.current = 'viaggio';
@@ -338,7 +378,7 @@ export default function Registratore({
           }
 
           registra(campione, errori);
-          if (bufferRef.current.length >= CAMPIONI_PER_INVIO) await svuota();
+          if (bufferRef.current.length >= CAMPIONI_PER_INVIO) svuotaSenzaAttesa();
 
           const trascorso = Date.now() - inizio;
           await new Promise(r => setTimeout(r, Math.max(0, INTERVALLO_VIAGGIO_MS - trascorso)));
@@ -356,15 +396,21 @@ export default function Registratore({
         giro++;
 
         const { campione, errori } = await leggiCampione(canale.invia, lento);
-        if (lento) await giroCompleto(campione, errori);
+        // Il giudizio "bus muto" si dà sui SOLI PID standard, PRIMA del giro
+        // completo: il BECM risponde alle UDS anche ad auto addormentata, e
+        // il didRaw del giro lento azzererebbe il conteggio per sempre —
+        // dongle mai rilasciato e centraline svegliate ogni minuto, il
+        // contrario esatto del §5.4. E un'auto che tace ai PID non si sonda
+        // oltre: niente giro completo quando il bus dorme.
+        const muto = Object.keys(campione).length <= 1;
+        if (lento && !muto) await giroCompleto(campione, errori);
 
         registra(campione, errori);
-        if (bufferRef.current.length >= CAMPIONI_PER_INVIO) await svuota();
+        if (bufferRef.current.length >= CAMPIONI_PER_INVIO) svuotaSenzaAttesa();
 
         // L'auto-stop del presidio: l'auto dorme, i PID non rispondono più.
         // Dopo cinque minuti di giri vuoti da fermo la guida è finita: la
         // sessione si chiude e il genitore rilascia il dongle (§5.4).
-        const muto = Object.keys(campione).length <= 1;
         if (muto && !inMovimento()) giriMuti++;
         else giriMuti = 0;
         // Il valore vivo, non quello congelato all'avvio: spegnere il toggle
@@ -375,46 +421,59 @@ export default function Registratore({
           break;
         }
 
-        const trascorso = Date.now() - inizio;
-        await new Promise(r => setTimeout(r, Math.max(0, INTERVALLO_MS - trascorso)));
-      }
-
-      // Uscita dal ciclo: mai lasciare l'header sul BECM
-      if (headerSuBECM) {
-        await ripristinaStandard(canale.invia).catch(() => {});
+          const trascorso = Date.now() - inizio;
+          await new Promise(r => setTimeout(r, Math.max(0, INTERVALLO_MS - trascorso)));
+        }
+      } finally {
+        // Uscita dal ciclo — anche per eccezione: mai lasciare l'header sul
+        // BECM, e il mutex si rilascia solo ORA che il filo è davvero libero.
+        // ferma() è sincrona ma il giro in corso può avere ancora 15-25 s di
+        // comandi in volo: il Buongiorno non deve potervisi infilare.
+        if (headerSuBECM) {
+          await ripristinaStandard(canale.invia).catch(() => {});
+        }
+        cicloVivoRef.current = false;
+        occupaCanale(null);
       }
     };
-    ciclo();
+    cicloVivoRef.current = true;
+    ciclo().catch(() => {});
   };
 
   // ferma() non tocca mai il canale: spegne il ciclo, il GPS e il wake lock,
   // e svuota il buffer via rete. Può — e deve — funzionare anche a canale
   // sparito: senza, un Disconnetti a registrazione attiva lascerebbe una
   // sessione inarrestabile che spedisce campioni solo-GPS.
-  const ferma = useCallback(async () => {
+  const ferma = useCallback(async (perCaduta = false) => {
     attivoRef.current = false;
     sessioneRef.current++;
     setAttivo(false);
     setRegime('sosta');
-    occupaCanale(null);
+    // Il mutex lo rilascia l'uscita vera del ciclo (che può avere ancora
+    // secondi di comandi in volo); qui solo quando il ciclo non gira già più
+    if (!cicloVivoRef.current) occupaCanale(null);
     fermaGps();
-    // La memoria per la ripresa del presidio: se si riparte entro dieci
-    // minuti, è la stessa guida
-    if (idSessioneRef.current) {
+    // La memoria per la ripresa: SOLO sulla caduta del canale — è per lei che
+    // esiste. Un auto-stop o un Ferma voluto chiudono la guida: la prossima
+    // è un'altra, e cucirle sotto la stessa sessione fonderebbe due viaggi.
+    if (perCaduta && idSessioneRef.current) {
       ultimaSessioneRef.current = { sid: idSessioneRef.current, quando: Date.now() };
+    } else {
+      ultimaSessioneRef.current = null;
     }
     presidioNativoFerma();
-    await svuota();
+    await svuotaTutto();
     wakeLockRef.current?.release().catch(() => {});
     wakeLockRef.current = null;
-     
-  }, [svuota]);
+
+  }, [svuotaTutto]);
 
   // Il canale può sparire mentre si registra (bottone Disconnetti del
   // genitore): il loop girerebbe su un canale morto inghiottendo gli errori,
   // spedendo campioni solo-GPS che accreditano copertura senza potenza.
   useEffect(() => {
-    if (!canale && attivoRef.current) ferma();
+    // Il canale sparito sotto i piedi è la caduta per cui esiste la ripresa
+    if (!canale && attivoRef.current) ferma(true);
   }, [canale, ferma]);
 
   useEffect(() => {
@@ -451,7 +510,12 @@ export default function Registratore({
     fermaGps();
     wakeLockRef.current?.release().catch(() => {});
     occupaCanale(null);
-     
+    // Lo smontaggio è la gemella di ferma(): senza queste due, nel guscio il
+    // foreground service resterebbe acceso (wake lock fino a 12 ore) e fino
+    // a 14 campioni già contati come "letti" morirebbero in RAM
+    presidioNativoFerma();
+    void svuotaTuttoRef.current();
+
   }, []);
 
   return (
@@ -496,7 +560,7 @@ export default function Registratore({
       </div>
 
       <button
-        onClick={attivo ? ferma : avvia}
+        onClick={() => (attivo ? ferma(false) : avvia())}
         disabled={(!attivo && (!canale || !token)) || (occupazione !== null && occupazione !== 'registratore')}
         className={`flex items-center justify-center gap-2 w-full p-3 rounded-xl font-semibold text-sm transition-all disabled:opacity-40 ${
           attivo ? 'bg-red-600 hover:bg-red-500' : 'bg-emerald-600 hover:bg-emerald-500'
