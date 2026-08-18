@@ -66,7 +66,7 @@ async function arricchisci(viaggio: {
       recordedAt: { gte: inizioFinestra, lte: fineFinestra },
     },
     orderBy: { recordedAt: 'asc' },
-    select: { recordedAt: true, speedKmh: true, socDisplay: true, packPowerKw: true },
+    select: { recordedAt: true, speedKmh: true, socDisplay: true, packPowerKw: true, sessionId: true },
   });
 
   const esito = calcolaArricchimento(
@@ -78,8 +78,24 @@ async function arricchisci(viaggio: {
   // normale, non un arricchimento vuoto da conservare.
   if (!esito) return;
 
+  // La sessione dominante fra i campioni agganciati: se i campioni di questa
+  // finestra vengono quasi tutti dalla stessa sessione, il viaggio e' un
+  // ritaglio di quella guida — e la UI puo' ricomporre i ritagli contigui.
+  const conteggi = new Map<string, number>();
+  for (const c of campioni) {
+    if (c.sessionId) conteggi.set(c.sessionId, (conteggi.get(c.sessionId) ?? 0) + 1);
+  }
+  let sessioneDominante: string | null = null;
+  let massimo = 0;
+  for (const [id, n] of conteggi) {
+    if (n > massimo) { massimo = n; sessioneDominante = id; }
+  }
+  // Dominante davvero: piu' della meta' dei campioni agganciati
+  if (massimo <= campioni.length / 2) sessioneDominante = null;
+
   const dati = {
     userId: viaggio.userId,
+    sessionId: sessioneDominante,
     sampleCount: esito.sampleCount,
     coverage: esito.coverage,
     gaps: esito.gaps,

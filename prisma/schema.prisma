@@ -80,12 +80,32 @@ model ObdDevice {
   @@index([userId])
 }
 
+// La sessione di raccolta (bussola par. 5.2): id generato dal client,
+// contesto DICHIARATO da chi la avvia, versione dell'app che l'ha prodotta.
+// È l'unità di verità sulla continuità: il cloud ritaglia i viaggi
+// sull'odometro intero e li frammenta ai semafori, la sessione sa che la
+// guida era una — e l'aggancio la usa per ricomporre i ritagli.
+model ObdSession {
+  id         String    @id // uuid del client: sopravvive ai retry dei lotti
+  userId     String
+  deviceId   String
+  context    String    // buongiorno | viaggio | carica | libero
+  startedAt  DateTime
+  endedAt    DateTime?
+  appVersion String?   // sha del deploy: il lotto da bundle vecchio si vede
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, startedAt])
+}
+
 model ObdSample {
   id         String   @id @default(cuid())
   userId     String
   deviceId   String
   recordedAt DateTime
   createdAt  DateTime @default(now())
+  // La sessione che l'ha prodotto; null per lo storico pre-sessioni
+  sessionId  String?
 
   // I campi rispecchiano i sensori realmente esposti dalla XC40 MY2023, letti
   // dalla lista di Car Scanner. Le temperature delle singole celle non ci sono:
@@ -128,6 +148,7 @@ model ObdSample {
   // scende sotto il centinaio di millisecondi.
   @@unique([deviceId, recordedAt])
   @@index([userId, recordedAt])
+  @@index([sessionId])
 }
 
 // Arricchimento OBD dei viaggi: strato SEPARATO dal rilevatore, che non si
@@ -166,6 +187,9 @@ model TripEnrichment {
   // Copertura della serie di potenza: il badge "misurato" si regge su questa,
   // perché l'integrale vive sui soli campioni con V*I
   powerCoverage       Float?
+  // La sessione dominante fra i campioni agganciati: due viaggi contigui con
+  // la stessa sessione sono ritagli della stessa guida, e la UI li ricompone
+  sessionId           String?
 
   // Niente indice su userId: ogni lettura passa da tripId (unique). Un indice
   // speculativo costerebbe un aggiornamento a ogni upsert senza servire nessuno.

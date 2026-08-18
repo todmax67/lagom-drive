@@ -51,6 +51,9 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
   const gpsWatchRef = useRef<number | null>(null);
   const posPrecRef = useRef<{ lat: number; lon: number; t: number } | null>(null);
   const busRef = useRef<{ kmh: number; quando: number } | null>(null);
+  // L'identità della sessione (bussola par. 5.2): generata all'avvio, viaggia
+  // con ogni lotto. È lei che permette di ricomporre i ritagli del cloud.
+  const idSessioneRef = useRef<string | null>(null);
   const ultimoMotoRef = useRef(0);
   const sessioneRef = useRef(0);
   const [regime, setRegime] = useState<'sosta' | 'viaggio'>('sosta');
@@ -89,7 +92,12 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
       const r = await fetch('/api/obd/ingest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ samples: daInviare }),
+        body: JSON.stringify({
+          samples: daInviare,
+          sessionId: idSessioneRef.current,
+          context: 'libero',
+          appVersion: process.env.NEXT_PUBLIC_APP_SHA,
+        }),
       });
       const d = await r.json();
       if (!r.ok) {
@@ -103,9 +111,12 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
         scartati: c.scartati + (d.rejected ?? 0),
       }));
     } catch (err) {
-      // I campioni sono già usciti dal buffer: si perdono. Meglio che accumularli
-      // all'infinito su una connessione che non torna.
-      setMessaggio('Invio fallito: ' + (err instanceof Error ? err.message : String(err)));
+      // Rete assente (galleria, parcheggio interrato): i campioni tornano in
+      // testa al buffer e ripartono al giro dopo. Il tetto evita l'accumulo
+      // infinito: oltre ~20 minuti di coda, i più vecchi si sacrificano —
+      // dedupe lato server rende innocuo qualunque rinvio.
+      bufferRef.current = [...daInviare, ...bufferRef.current].slice(-600);
+      setMessaggio('Invio fallito, campioni in coda: ' + (err instanceof Error ? err.message : String(err)));
     }
   }, [token]);
 
@@ -180,6 +191,7 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
     // il token cambiato, esce e passa dal suo ripristino.
     if (!canale || attivoRef.current) return;
     const mioId = ++sessioneRef.current;
+    idSessioneRef.current = crypto.randomUUID();
     setAttivo(true);
     attivoRef.current = true;
     occupaCanale('registratore');
