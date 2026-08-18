@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { fondiCariche } from '@/lib/cariche-fusione';
 
 /**
  * I testimoni della salute batteria (bussola §4.4), come serie temporali:
@@ -172,29 +173,7 @@ export async function GET() {
   // nessuna guida in mezzo, ripresa entro le 12 ore. Il contatore del gruppo
   // è la somma dei wallKwh inseriti — vale sia col totale scritto una volta
   // sola, sia coi contatori per-spezzone.
-  const GAP_MAX_MS = 12 * 3600 * 1000;
-  // "Nessuna guida in mezzo" va verificato, non presunto: due ricariche
-  // distinte possono combaciare per caso sui livelli interi
-  const guidaFra = (da: Date, a: Date) =>
-    tuttiViaggi.some(t => t.startedAt >= da && t.startedAt <= a);
-  const gruppi: (typeof cariche)[] = [];
-  for (const c of cariche) {
-    const gruppo = gruppi[gruppi.length - 1];
-    const prec = gruppo?.[gruppo.length - 1];
-    if (
-      prec &&
-      prec.endLevel === c.startLevel &&
-      prec.chargingType === c.chargingType &&
-      prec.endedAt &&
-      c.startedAt.getTime() >= prec.endedAt.getTime() &&
-      c.startedAt.getTime() - prec.endedAt.getTime() <= GAP_MAX_MS &&
-      !guidaFra(prec.endedAt, c.startedAt)
-    ) {
-      gruppo.push(c);
-    } else {
-      gruppi.push([c]);
-    }
-  }
+  const gruppi = fondiCariche(cariche, tuttiViaggi);
   const muro = gruppi
     .map(g => {
       const delta = g[g.length - 1].endLevel! - g[0].startLevel;
