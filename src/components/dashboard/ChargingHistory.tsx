@@ -17,6 +17,63 @@ interface ChargingSession {
   wallKwh: number | null;
   location: string | null;
   isComplete: boolean;
+  // Il marchio di gruppo calcolato dal server (cariche-fusione): spezzoni
+  // della stessa ricarica lo condividono
+  gruppoId?: string;
+  // Presenti solo sulle card ricomposte, sintetizzate da ricomponi()
+  spezzoni?: number;
+  durataCaricaMs?: number;
+  altriSpezzoni?: string[];
+}
+
+/**
+ * La ricomposizione delle ricariche, come per i viaggi: il rilevatore non si
+ * tocca, è la presentazione che fonde gli spezzoni con lo stesso gruppoId in
+ * una card sola. L'id della card fusa è quello dello spezzone FINALE — la
+ * convenzione di casa: contatore a muro, tariffa e costo del gruppo vivono
+ * lì, e le modifiche dalla card scrivono lì.
+ */
+function ricomponi(sessions: ChargingSession[]): ChargingSession[] {
+  const gruppi = new Map<string, ChargingSession[]>();
+  const ordine: string[] = [];
+  for (const s of sessions) {
+    const chiave = s.gruppoId ?? s.id;
+    if (!gruppi.has(chiave)) {
+      gruppi.set(chiave, []);
+      ordine.push(chiave);
+    }
+    gruppi.get(chiave)!.push(s);
+  }
+  return ordine.map(chiave => {
+    const spezzoni = gruppi.get(chiave)!; // dal più recente al più vecchio
+    if (spezzoni.length === 1) return spezzoni[0];
+    const finale = spezzoni[0];
+    const primo = spezzoni[spezzoni.length - 1];
+    const somma = (f: (s: ChargingSession) => number | null) => {
+      const valori = spezzoni.map(f).filter((x): x is number => x != null);
+      return valori.length ? valori.reduce((a, b) => a + b, 0) : null;
+    };
+    return {
+      ...finale,
+      startedAt: primo.startedAt,
+      endedAt: finale.endedAt,
+      startLevel: primo.startLevel,
+      endLevel: finale.endLevel,
+      energyAdded: somma(s => s.energyAdded),
+      wallKwh: somma(s => s.wallKwh),
+      totalCost: somma(s => s.totalCost),
+      costPerKwh: spezzoni.find(s => s.costPerKwh != null)?.costPerKwh ?? null,
+      location: spezzoni.find(s => s.location)?.location ?? null,
+      isComplete: spezzoni.every(s => s.isComplete),
+      spezzoni: spezzoni.length,
+      // La durata di CARICA: le pause fra gli spezzoni non contano
+      durataCaricaMs: spezzoni.reduce(
+        (tot, s) => tot + (s.endedAt ? Date.parse(s.endedAt) - Date.parse(s.startedAt) : 0),
+        0
+      ),
+      altriSpezzoni: spezzoni.slice(1).map(s => s.id),
+    };
+  });
 }
 
 function formatDate(dateStr: string) {
@@ -28,13 +85,16 @@ function formatDate(dateStr: string) {
   });
 }
 
-function formatDuration(start: string, end: string | null) {
-  if (!end) return 'In corso';
-  const diff = new Date(end).getTime() - new Date(start).getTime();
+function formatMs(diff: number) {
   const h = Math.floor(diff / 3600000);
   const m = Math.floor((diff % 3600000) / 60000);
   if (h === 0) return `${m} min`;
   return `${h}h ${m}m`;
+}
+
+function formatDuration(start: string, end: string | null) {
+  if (!end) return 'In corso';
+  return formatMs(new Date(end).getTime() - new Date(start).getTime());
 }
 
 function SessionCard({
@@ -59,6 +119,34 @@ function SessionCard({
       const newCostPerKwh = parseFloat(costPerKwh) || 0;
       const newWallKwh = parseFloat(wallKwh);
       const wall = Number.isFinite(newWallKwh) && newWallKwh > 0 ? newWallKwh : null;
+
+      // Un salvataggio che tocca solo il luogo non deve ribasare il costo:
+      // con tariffa e contatore invariati la contabilità resta com'è.
+      const contabilitaCambiata =
+        newCostPerKwh !== (session.costPerKwh ?? 0) ||
+        (wall ?? null) !== (session.wallKwh ?? null);
+
+      if (!contabilitaCambiata) {
+        const res = await fetch(`/api/charging/sessions/${session.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ location }),
+        });
+        if (res.ok) {
+          onUpdate(session.id, { location });
+          for (const altroId of session.altriSpezzoni ?? []) {
+            const r = await fetch(`/api/charging/sessions/${altroId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ location }),
+            });
+            if (r.ok) onUpdate(altroId, { location });
+          }
+          setEditing(false);
+        }
+        return;
+      }
+
       // La correzione della base di costo (bussola §4.3): la tariffa si paga
       // lato MURO, non lato pacco. Col contatore si fattura il pagato; senza,
       // resta il vecchio calcolo lato pacco, ottimista delle perdite AC.
@@ -86,6 +174,20 @@ function SessionCard({
           location,
           wallKwh: wall,
         });
+        // Sulla card ricomposta la contabilità del gruppo vive sullo spezzone
+        // finale: agli altri si azzerano costo E contatore — un contatore
+        // rimasto su uno spezzone di mezzo raddoppierebbe il muro del gruppo
+        // (e sopprimerebbe il punto del testimone B in Salute) — e si
+        // allineano tariffa e luogo.
+        for (const altroId of session.altriSpezzoni ?? []) {
+          const r = await fetch(`/api/charging/sessions/${altroId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ costPerKwh: newCostPerKwh, totalCost: null, wallKwh: null, location }),
+          });
+          if (r.ok)
+            onUpdate(altroId, { costPerKwh: newCostPerKwh, totalCost: null, wallKwh: null, location });
+        }
         setEditing(false);
       }
     } catch (err) {
@@ -113,6 +215,11 @@ function SessionCard({
           <span className="text-sm font-medium text-white">
             {session.location ?? (session.chargingType === 'DC' ? 'Colonnina' : 'Casa')}
           </span>
+          {session.spezzoni != null && session.spezzoni > 1 && (
+            <span className="text-xs text-teal-300/80">
+              {session.spezzoni} spezzoni ricomposti
+            </span>
+          )}
           {!session.isComplete && (
             <span className="text-xs text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full">
               In corso
@@ -182,8 +289,13 @@ function SessionCard({
         <div className="rounded-lg bg-gray-800/60 p-2.5">
           <p className="text-xs text-gray-400 mb-1">Durata</p>
           <p className="text-sm text-white font-light">
-            {formatDuration(session.startedAt, session.endedAt)}
+            {session.durataCaricaMs != null
+              ? formatMs(session.durataCaricaMs)
+              : formatDuration(session.startedAt, session.endedAt)}
           </p>
+          {session.durataCaricaMs != null && (
+            <p className="text-xs text-gray-400 mt-0.5">di carica, pause escluse</p>
+          )}
         </div>
       </div>
 
@@ -298,7 +410,7 @@ export default function ChargingHistory({
         Storico Ricariche
       </span>
       <div className="flex flex-col gap-3">
-        {sessions.map(s => (
+        {ricomponi(sessions).map(s => (
           <SessionCard key={s.id} session={s} onUpdate={handleUpdate} />
         ))}
       </div>

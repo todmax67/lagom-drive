@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { fondiCariche } from '@/lib/cariche-fusione';
 
 export async function GET() {
   const session = await auth();
@@ -8,7 +9,7 @@ export async function GET() {
     return NextResponse.json({ message: 'Non autorizzato' }, { status: 401 });
   }
 
-  const userId = (session as any).userId ?? session.user?.email ?? 'unknown';
+  const userId = (session as { userId?: string }).userId ?? session.user?.email ?? 'unknown';
 
   const sessions = await prisma.chargingSession.findMany({
     where: { userId },
@@ -16,7 +17,29 @@ export async function GET() {
     take: 50,
   });
 
-  return NextResponse.json(sessions);
+  // Il marchio di gruppo per la ricomposizione in UI: spezzoni della stessa
+  // ricarica (stessa logica di /api/salute, vedi cariche-fusione) condividono
+  // il gruppoId. La coda troncata dal take può amputare il gruppo più
+  // vecchio: gli spezzoni in finestra si fondono comunque fra loro — una
+  // card parziale (startLevel a metà carica), contabilmente innocua.
+  const viaggi = sessions.length
+    ? await prisma.trip.findMany({
+        where: {
+          userId,
+          isComplete: true,
+          startedAt: { gte: sessions[sessions.length - 1].startedAt },
+        },
+        select: { startedAt: true },
+      })
+    : [];
+  const gruppoDi = new Map<string, string>();
+  for (const gruppo of fondiCariche([...sessions].reverse(), viaggi)) {
+    for (const c of gruppo) gruppoDi.set(c.id, gruppo[0].id);
+  }
+
+  return NextResponse.json(
+    sessions.map(s => ({ ...s, gruppoId: gruppoDi.get(s.id) ?? s.id }))
+  );
 }
 
 export async function POST(request: Request) {
@@ -25,7 +48,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: 'Non autorizzato' }, { status: 401 });
   }
 
-  const userId = (session as any).userId ?? 'unknown';
+  const userId = (session as { userId?: string }).userId ?? 'unknown';
   const body = await request.json();
 
   const {
