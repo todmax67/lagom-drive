@@ -61,7 +61,11 @@ export async function GET(request: Request) {
     const s1 = snapshot[i];
     const dt = s1.createdAt.getTime() - s0.createdAt.getTime();
     if (dt < DT_MIN_MS || dt > DT_MAX_MS) continue;
-    if (!s0.isCharging && !s1.isCharging) continue;
+    // ENTRAMBI i capi in carica: un tratto a cavallo dell'attacco o dello
+    // stacco diluirebbe la carica su tempo che la fonte stessa dichiara non
+    // in carica — un gradino inventato al bordo di quasi ogni sessione,
+    // visto che il cron campiona ogni 1-2 minuti anche da fermo
+    if (!s0.isCharging || !s1.isCharging) continue;
     const deltaLivello = s1.level - s0.level;
     if (deltaLivello < 0) continue;
     const kw = ((deltaLivello / 100) * capacita) / (dt / 3_600_000);

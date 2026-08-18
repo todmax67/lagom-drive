@@ -43,13 +43,22 @@ type Secchio = {
   viaggi: number;
   km: number;
   kwh: number;
+  // Quanti viaggi hanno una stima di energia: "somma = 0" con stime presenti
+  // è un dato vero (tratte corte sotto il passo del SoC), non un'assenza
+  stime: number;
   // km dei soli viaggi con energia: il denominatore onesto del consumo
   kmConEnergia: number;
 };
 
 function nuovoSecchio(): Secchio {
-  return { viaggi: 0, km: 0, kwh: 0, kmConEnergia: 0 };
+  return { viaggi: 0, km: 0, kwh: 0, stime: 0, kmConEnergia: 0 };
 }
+
+// Le soglie del consumo sono quelle del rilevatore (e della card fusa):
+// almeno 10 km di base e almeno 1.3 kWh di energia — sotto, il numero è
+// costruito da un singolo passo di quantizzazione del SoC intero.
+const KM_MIN_CONSUMO = 10;
+const KWH_MIN_CONSUMO = 1.3;
 
 function riga(chiave: string, label: string, s: Secchio) {
   return {
@@ -57,9 +66,11 @@ function riga(chiave: string, label: string, s: Secchio) {
     label,
     viaggi: s.viaggi,
     km: s.km,
-    kwh: s.kwh > 0 ? s.kwh : null,
-    // Sotto i 10 km di base il rapporto è rumore, come per il rilevatore
-    consumo: s.kmConEnergia >= 10 && s.kwh > 0 ? (s.kwh / s.kmConEnergia) * 100 : null,
+    kwh: s.stime > 0 ? s.kwh : null,
+    consumo:
+      s.kmConEnergia >= KM_MIN_CONSUMO && s.kwh >= KWH_MIN_CONSUMO
+        ? (s.kwh / s.kmConEnergia) * 100
+        : null,
   };
 }
 
@@ -93,6 +104,7 @@ export async function GET() {
       if (v.distanceKm != null) s.km += v.distanceKm;
       if (v.energyUsedKwh != null) {
         s.kwh += v.energyUsedKwh;
+        s.stime += 1;
         if (v.distanceKm != null) s.kmConEnergia += v.distanceKm;
       }
       mappa.set(chiave, s);

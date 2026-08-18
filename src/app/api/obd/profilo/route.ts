@@ -15,8 +15,11 @@ import { prisma } from '@/lib/prisma';
 
 // Stessa soglia dell'accoppiatore: oltre, il tratto è un buco vero
 const INTERVALLO_COPERTO_MS = 10_000;
-// Oltre le 12 ore non è la finestra di un viaggio
-const SPAN_MAX_MS = 12 * 60 * 60 * 1000;
+// Oltre le 24 ore non è la finestra né di un viaggio né di una ricarica.
+// Allineato al tetto di /api/charging/curva: la curva chiede il profilo
+// sulla stessa finestra, e due tetti diversi facevano sparire in silenzio
+// la serie misurata sulle cariche AC lente (12-24 ore).
+const SPAN_MAX_MS = 24 * 60 * 60 * 1000;
 const SECCHI_MAX = 140;
 const SECCHI_MIN = 12;
 
