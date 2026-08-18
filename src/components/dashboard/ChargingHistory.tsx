@@ -119,6 +119,34 @@ function SessionCard({
       const newCostPerKwh = parseFloat(costPerKwh) || 0;
       const newWallKwh = parseFloat(wallKwh);
       const wall = Number.isFinite(newWallKwh) && newWallKwh > 0 ? newWallKwh : null;
+
+      // Un salvataggio che tocca solo il luogo non deve ribasare il costo:
+      // con tariffa e contatore invariati la contabilità resta com'è.
+      const contabilitaCambiata =
+        newCostPerKwh !== (session.costPerKwh ?? 0) ||
+        (wall ?? null) !== (session.wallKwh ?? null);
+
+      if (!contabilitaCambiata) {
+        const res = await fetch(`/api/charging/sessions/${session.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ location }),
+        });
+        if (res.ok) {
+          onUpdate(session.id, { location });
+          for (const altroId of session.altriSpezzoni ?? []) {
+            const r = await fetch(`/api/charging/sessions/${altroId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ location }),
+            });
+            if (r.ok) onUpdate(altroId, { location });
+          }
+          setEditing(false);
+        }
+        return;
+      }
+
       // La correzione della base di costo (bussola §4.3): la tariffa si paga
       // lato MURO, non lato pacco. Col contatore si fattura il pagato; senza,
       // resta il vecchio calcolo lato pacco, ottimista delle perdite AC.
@@ -147,15 +175,18 @@ function SessionCard({
           wallKwh: wall,
         });
         // Sulla card ricomposta la contabilità del gruppo vive sullo spezzone
-        // finale: agli altri si azzera il costo (o la somma degli spezzoni
-        // conterebbe due volte) e si allineano tariffa e luogo.
+        // finale: agli altri si azzerano costo E contatore — un contatore
+        // rimasto su uno spezzone di mezzo raddoppierebbe il muro del gruppo
+        // (e sopprimerebbe il punto del testimone B in Salute) — e si
+        // allineano tariffa e luogo.
         for (const altroId of session.altriSpezzoni ?? []) {
           const r = await fetch(`/api/charging/sessions/${altroId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ costPerKwh: newCostPerKwh, totalCost: null, location }),
+            body: JSON.stringify({ costPerKwh: newCostPerKwh, totalCost: null, wallKwh: null, location }),
           });
-          if (r.ok) onUpdate(altroId, { costPerKwh: newCostPerKwh, totalCost: null, location });
+          if (r.ok)
+            onUpdate(altroId, { costPerKwh: newCostPerKwh, totalCost: null, wallKwh: null, location });
         }
         setEditing(false);
       }

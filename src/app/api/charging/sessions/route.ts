@@ -19,8 +19,9 @@ export async function GET() {
 
   // Il marchio di gruppo per la ricomposizione in UI: spezzoni della stessa
   // ricarica (stessa logica di /api/salute, vedi cariche-fusione) condividono
-  // il gruppoId. La coda troncata dal take può spezzare il gruppo più
-  // vecchio: innocuo, quegli spezzoni restano card singole.
+  // il gruppoId. La coda troncata dal take può amputare il gruppo più
+  // vecchio: gli spezzoni in finestra si fondono comunque fra loro — una
+  // card parziale (startLevel a metà carica), contabilmente innocua.
   const viaggi = sessions.length
     ? await prisma.trip.findMany({
         where: {
