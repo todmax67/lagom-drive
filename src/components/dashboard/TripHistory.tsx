@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Route, Zap, TrendingDown, Leaf, Gauge } from 'lucide-react';
 
 // I nullable rispecchiano lo schema Prisma: i campi energetici mancano sui
 // viaggi ricostruiti dallo storico e su quelli troppo brevi per una stima
@@ -33,6 +32,14 @@ interface Trip {
   } | null;
   // Quanti ritagli cloud compone questa card (1 = viaggio normale)
   ritagli?: number;
+}
+
+// Il profilo di potenza servito da /api/obd/profilo: secchi uniformi sulla
+// finestra del viaggio, buchi dichiarati, temperatura media di contorno.
+interface Profilo {
+  secchi: { pos: number; neg: number; dati: boolean }[];
+  ambientC: number | null;
+  gapSec: number | null;
 }
 
 /**
@@ -158,7 +165,7 @@ const COPERTURA_LIVELLO_1 = 0.95;
 // dall'ultimo azzeramento MANUALE del contachilometri (16.1-16.6 fisso sullo
 // storico mentre i viaggi ballano da 8.2 a 26.8), non un dichiarato
 // per-viaggio. Livello 3 — dedotto: ΔSoC × capacità, come sempre.
-function consumoConFonte(trip: Trip): { valore: number; fonte: string } | null {
+function consumoConFonte(trip: Trip): { valore: number; misurato: boolean } | null {
   const obd = trip.obd;
   const km = obd?.distanceObdKm ?? trip.distanceKm;
   if (
@@ -173,22 +180,38 @@ function consumoConFonte(trip: Trip): { valore: number; fonte: string } | null {
     km >= 1
   ) {
     const nettoKwh = obd.energyGrossKwh - obd.energyRegenGrossKwh;
-    return { valore: (nettoKwh / km) * 100, fonte: 'misurato · ∫V×I' };
+    return { valore: (nettoKwh / km) * 100, misurato: true };
   }
   if (trip.avgConsumption !== null && trip.avgConsumption > 0) {
-    return { valore: trip.avgConsumption, fonte: 'dedotto · ΔSoC × capacità' };
+    return { valore: trip.avgConsumption, misurato: false };
   }
   return null;
 }
 
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString('it-IT', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
+// Sotto questo salto di SoC la capacità implicita è rumore di quantizzazione:
+// il display si muove a passi di 0.784%, e su un delta piccolo l'errore agli
+// estremi domina il numero. A 8 punti l'incertezza è già ~±10%.
+const DELTA_SOC_MIN_CAPACITA = 8;
+
+// Numeri all'italiana: virgola, non punto
+const it = (n: number, decimali = 1) =>
+  n.toLocaleString('it-IT', {
+    minimumFractionDigits: decimali,
+    maximumFractionDigits: decimali,
   });
+
+// "gio 14 ago", con l'iniziale maiuscola del mock
+function dataGiorno(dateStr: string) {
+  const s = new Date(dateStr).toLocaleDateString('it-IT', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  });
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
+
+const ora = (dateStr: string) =>
+  new Date(dateStr).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
 
 function formatDuration(start: string, end: string | null) {
   if (!end) return 'n/d';
@@ -199,7 +222,310 @@ function formatDuration(start: string, end: string | null) {
   return `${h}h ${m}m`;
 }
 
-export default function TripHistory() {
+/**
+ * Il profilo del viaggio: trazione sopra la linea (corallo), recupero sotto
+ * (verde-acqua), e i buchi come bande grigie — mai come zeri inventati. La
+ * linea di base si sposta in proporzione ai due massimi, così un viaggio di
+ * discesa dà al recupero lo spazio che si è guadagnato.
+ */
+function GraficoPotenza({ profilo }: { profilo: Profilo }) {
+  const { secchi } = profilo;
+  if (secchi.length < 2) return null;
+
+  const W = 600;
+  const H = 110;
+  const n = secchi.length;
+  const maxPos = Math.max(...secchi.map(s => s.pos), 0.5);
+  const maxNeg = Math.max(...secchi.map(s => -s.neg), 0.5);
+  const quotaPos = Math.min(0.85, Math.max(0.5, maxPos / (maxPos + maxNeg)));
+  const base = Math.round(H * quotaPos);
+  const x = (i: number) => (i * W) / (n - 1);
+  const yPos = (v: number) => base - (v / maxPos) * (base - 4);
+  const yNeg = (v: number) => base + ((-v) / maxNeg) * (H - base - 4);
+
+  const puntiPos = secchi
+    .map((s, i) => `L${x(i).toFixed(1)},${(s.dati ? yPos(s.pos) : base).toFixed(1)}`)
+    .join(' ');
+  const puntiNeg = secchi
+    .map((s, i) => `L${x(i).toFixed(1)},${(s.dati ? yNeg(s.neg) : base).toFixed(1)}`)
+    .join(' ');
+
+  // Le bande grigie: sequenze di secchi senza dati
+  const bande: { da: number; a: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    if (secchi[i].dati) continue;
+    if (bande.length && bande[bande.length - 1].a === i - 1) bande[bande.length - 1].a = i;
+    else bande.push({ da: i, a: i });
+  }
+  const mezzoPasso = W / (2 * (n - 1));
+
+  // Sotto i 45 s il "senza dati" è residuo di bordo, non un buco da legenda;
+  // sopra, si dichiara al minuto col segno di approssimazione — mai troncando
+  // in silenzio fino a mezzo minuto di buco
+  const gapSec = profilo.gapSec ?? 0;
+  const gapEtichetta =
+    gapSec >= 45 ? `≈${Math.max(1, Math.round(gapSec / 60))} min senza dati` : null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        className="w-full h-24"
+        role="img"
+        aria-label="Profilo di potenza del viaggio"
+      >
+        <path
+          d={`M0,${base} ${puntiPos} L${W},${base} Z`}
+          fill="rgb(251 146 60 / 0.55)"
+        />
+        <path
+          d={`M0,${base} ${puntiNeg} L${W},${base} Z`}
+          fill="rgb(45 212 191 / 0.6)"
+        />
+        {bande.map((b, i) => (
+          <rect
+            key={i}
+            x={Math.max(0, x(b.da) - mezzoPasso).toFixed(1)}
+            y={0}
+            width={(Math.min(W, x(b.a) + mezzoPasso) - Math.max(0, x(b.da) - mezzoPasso)).toFixed(1)}
+            height={H}
+            fill="rgb(107 114 128 / 0.25)"
+          />
+        ))}
+        <line x1={0} y1={base} x2={W} y2={base} stroke="rgb(75 85 99 / 0.6)" strokeWidth={1} />
+      </svg>
+      <div className="flex items-center gap-4 text-xs text-gray-500">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-sm bg-orange-400/80" />
+          potenza spesa
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-sm bg-teal-400/80" />
+          recupero
+        </span>
+        {gapEtichetta && (
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-sm bg-gray-500/40" />
+            {gapEtichetta}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Una riga del bilancio energetico: etichetta, barra in scala, valore
+function BarraEnergia({
+  etichetta,
+  kwh,
+  massimo,
+  classe,
+  negativo,
+}: {
+  etichetta: string;
+  kwh: number;
+  massimo: number;
+  classe: string;
+  negativo?: boolean;
+}) {
+  const larghezza = Math.max(4, Math.min(100, (Math.abs(kwh) / massimo) * 100));
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-sm text-gray-400 w-24 shrink-0">{etichetta}</span>
+      <div className="flex-1">
+        <div
+          className={`h-2 rounded-full ${classe}`}
+          style={{ width: `${larghezza}%` }}
+        />
+      </div>
+      <span className="text-sm text-white font-light w-14 text-right tabular-nums">
+        {negativo ? '−' : ''}{it(Math.abs(kwh), 2)}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * La card di un viaggio misurato: il consumo integrato in grande, il profilo
+ * di potenza, il bilancio del pacco, e in calce la copertura e il punto di
+ * capacità implicita quando il salto di SoC lo regge.
+ *
+ * "Di cui clima" del mock resta fuori di proposito: hvacPowerW si legge solo
+ * nelle sonde da fermo, il regime viaggio non lo campiona — la riga comparirà
+ * quando sarà una misura, non prima.
+ */
+function CardMisurata({
+  trip,
+  confronto,
+  onSalute,
+}: {
+  trip: Trip;
+  confronto: { delta: number; base: number } | null;
+  onSalute?: () => void;
+}) {
+  const [profilo, setProfilo] = useState<Profilo | null>(null);
+  const obd = trip.obd!;
+
+  const inizio = obd.movingStart ?? trip.startedAt;
+  const fine = obd.movingEnd ?? trip.endedAt;
+
+  useEffect(() => {
+    if (!fine) return;
+    const qs = new URLSearchParams({ da: inizio, a: fine });
+    fetch(`/api/obd/profilo?${qs}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d && Array.isArray(d.secchi)) setProfilo(d); })
+      .catch(() => {});
+  }, [inizio, fine]);
+
+  // Stessa cascata di consumoConFonte (OBD prima del cloud): il numero grande
+  // e il confronto con la mediana devono dividere per gli STESSI km
+  const km = obd.distanceObdKm ?? trip.distanceKm;
+  const lordo = obd.energyGrossKwh!;
+  const recupero = obd.energyRegenGrossKwh!;
+  const netto = lordo - recupero;
+  const consumo = km && km >= 1 ? (netto / km) * 100 : null;
+
+  // Il punto per Salute: capacità implicita = netto / ΔSoC. Solo quando il
+  // salto di SoC supera la soglia anti-quantizzazione, e senza decimali: con
+  // ~±10% di incertezza, i decimali dichiarerebbero una precisione che non c'è.
+  const deltaSoc =
+    obd.socStartObd != null && obd.socEndObd != null
+      ? obd.socStartObd - obd.socEndObd
+      : null;
+  const capacitaImplicita =
+    deltaSoc != null && deltaSoc >= DELTA_SOC_MIN_CAPACITA && netto > 0
+      ? (netto / deltaSoc) * 100
+      : null;
+
+  return (
+    <div className="rounded-xl bg-gray-900/60 p-4 flex flex-col gap-3">
+      {/* Header: giorno, orari rifiniti, riga dei fatti */}
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium text-white">
+            {dataGiorno(trip.startedAt)} · {ora(inizio)} {fine && <>→ {ora(fine)}</>}
+          </p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {km != null && `${it(km, 1)} km`}
+            {fine && ` · ${formatDuration(inizio, fine)}`}
+            {profilo?.ambientC != null && ` · ${Math.round(profilo.ambientC)} °C`}
+            {obd.socStartObd != null && obd.socEndObd != null &&
+              ` · SoC ${it(obd.socStartObd, 1)} → ${it(obd.socEndObd, 1)}%`}
+          </p>
+          {trip.ritagli != null && trip.ritagli > 1 && (
+            <p className="text-xs text-teal-300/80 mt-0.5">
+              {trip.ritagli} ritagli ricomposti · sessione OBD
+            </p>
+          )}
+        </div>
+        <span className="text-xs text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full shrink-0">
+          misurato OBD
+        </span>
+      </div>
+
+      {/* Il numero grande: kWh/100 km netti dall'integrale */}
+      {consumo != null && (
+        <div className="flex items-end justify-between gap-2">
+          <p className="text-white">
+            <span className="text-3xl font-light tabular-nums">{it(consumo, 1)}</span>
+            <span className="text-sm text-gray-400 ml-1.5">kWh/100 km netti</span>
+          </p>
+          {confronto && (
+            <span className="text-xs text-gray-400 mb-1">
+              {confronto.delta >= 0 ? '+' : '−'}{Math.abs(Math.round(confronto.delta))}%{' '}
+              vs la tua mediana ({confronto.base} misurati)
+            </span>
+          )}
+        </div>
+      )}
+
+      {profilo && profilo.secchi.length >= 2 && <GraficoPotenza profilo={profilo} />}
+
+      {/* Il bilancio del pacco: i due popoli e il saldo */}
+      <div className="flex flex-col gap-2">
+        <BarraEnergia etichetta="Trazione" kwh={lordo} massimo={Math.max(lordo, 0.1)} classe="bg-orange-500/90" />
+        <BarraEnergia etichetta="Recupero" kwh={recupero} massimo={Math.max(lordo, 0.1)} classe="bg-teal-400/90" negativo />
+      </div>
+      <div className="flex items-center justify-between border-t border-gray-700/50 pt-2.5">
+        <span className="text-sm font-medium text-white">Netto dal pacco</span>
+        <span className="text-sm font-medium text-white tabular-nums">{it(netto, 2)} kWh</span>
+      </div>
+
+      {/* Calce: la copertura dichiara, il punto di capacità deposita */}
+      <div className="flex items-center justify-between gap-2 border-t border-gray-700/50 pt-2.5 flex-wrap">
+        <span className="text-xs text-gray-500">
+          {/* floor, non round: "100%" solo a copertura piena */}
+          Copertura {Math.floor((obd.powerCoverage ?? 0) * 100)}%
+          {obd.movingStart && obd.movingEnd && ' · tempi rifiniti dai campioni'}
+          {obd.maxSpeedKmh != null && ` · max ${Math.round(obd.maxSpeedKmh)} km/h`}
+        </span>
+        {capacitaImplicita != null && (
+          <button
+            onClick={onSalute}
+            className="text-xs text-indigo-300 bg-indigo-400/10 hover:bg-indigo-400/20 px-2 py-0.5 rounded-full transition-colors"
+            title="Punto per il testimone C: netto misurato diviso salto di SoC. La capacità di lavoro resta 67 finché la promozione non è deliberata (bussola §4.4)."
+          >
+            capacità ~{Math.round(capacitaImplicita)} kWh → Salute
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// La card compatta dei viaggi senza integrale: due righe, il dedotto a destra.
+// Il badge dice "dedotto" e mai "trip meter Volvo": il per-viaggio dichiarato
+// non esiste nell'API (livello 2 vuoto, vedi consumoConFonte).
+function CardCompatta({ trip }: { trip: Trip }) {
+  const consumo = consumoConFonte(trip);
+  // La coppia SoC da UNA fonte sola: OBD se completa, altrimenti cloud. Una
+  // freccia con inizio cloud e fine OBD (possibile sulle card ricomposte)
+  // mescolerebbe due metri diversi senza dichiararlo.
+  const socObd = trip.obd?.socStartObd != null && trip.obd?.socEndObd != null;
+  const socInizio = socObd ? trip.obd!.socStartObd! : trip.startBattery;
+  const socFine = socObd ? trip.obd!.socEndObd : trip.endBattery;
+  // Attacca e rifinisce (§4.2) vale anche qui: i tempi testimoniati dai
+  // campioni, quando ci sono entrambi, battono la ricostruzione cloud
+  const rifinito = trip.obd?.movingStart != null && trip.obd?.movingEnd != null;
+  const obdParziale = trip.obd != null;
+
+  return (
+    <div className="rounded-xl bg-gray-900/60 p-4 flex items-start justify-between gap-3">
+      <div>
+        <p className="text-sm font-medium text-white">
+          {dataGiorno(trip.startedAt)} · {ora(rifinito ? trip.obd!.movingStart! : trip.startedAt)}
+        </p>
+        <p className="text-xs text-gray-500 mt-0.5">
+          {trip.distanceKm != null ? `${it(trip.distanceKm, 1)} km` : 'distanza n/d'}
+          {` · ${rifinito
+            ? formatDuration(trip.obd!.movingStart!, trip.obd!.movingEnd!)
+            : formatDuration(trip.startedAt, trip.endedAt)}`}
+          {socFine != null &&
+            ` · ${Math.round(socInizio)} → ${Math.round(socFine)}%`}
+        </p>
+        {obdParziale && (
+          <p className="text-xs text-gray-600 mt-0.5">
+            OBD parziale · copertura {Math.floor((trip.obd!.coverage ?? 0) * 100)}%
+          </p>
+        )}
+      </div>
+      {consumo && (
+        <div className="text-right shrink-0">
+          <p className="text-sm text-white font-light tabular-nums">
+            {it(consumo.valore, 1)} <span className="text-gray-500 text-xs">kWh/100 km</span>
+          </p>
+          <span className="inline-block mt-1 text-xs text-gray-400 bg-gray-700/40 px-2 py-0.5 rounded-full">
+            dedotto · ΔSoC × capacità
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function TripHistory({ onSalute }: { onSalute?: () => void }) {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -229,6 +555,28 @@ export default function TripHistory() {
     );
   }
 
+  const ricomposti = ricomponi(trips, trips.length >= 50);
+
+  // Il confronto del numero grande: la mediana degli ALTRI viaggi misurati in
+  // lista. Mediana e non media: con pochi punti, un'andata in salita non deve
+  // spostare il metro. Sotto tre termini di paragone, niente confronto.
+  const misurati = ricomposti
+    .map(t => ({ id: t.id, c: consumoConFonte(t) }))
+    .filter(x => x.c?.misurato)
+    .map(x => ({ id: x.id, valore: x.c!.valore }));
+  const confrontoPer = (id: string): { delta: number; base: number } | null => {
+    const altri = misurati.filter(m => m.id !== id).map(m => m.valore);
+    if (altri.length < 3) return null;
+    const ordinati = [...altri].sort((a, b) => a - b);
+    const mediana =
+      ordinati.length % 2
+        ? ordinati[(ordinati.length - 1) / 2]
+        : (ordinati[ordinati.length / 2 - 1] + ordinati[ordinati.length / 2]) / 2;
+    const proprio = misurati.find(m => m.id === id)!.valore;
+    if (mediana <= 0) return null;
+    return { delta: ((proprio - mediana) / mediana) * 100, base: altri.length };
+  };
+
   return (
     <div className="rounded-2xl border border-gray-700/50 bg-gray-800/50 p-6 flex flex-col gap-4">
       <span className="text-xs font-semibold tracking-widest text-gray-400 uppercase">
@@ -236,139 +584,18 @@ export default function TripHistory() {
       </span>
 
       <div className="flex flex-col gap-3">
-        {ricomponi(trips, trips.length >= 50).map(trip => (
-          <div key={trip.id} className="rounded-xl bg-gray-900/60 p-4 flex flex-col gap-3">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Route size={14} className="text-blue-400" />
-                <span className="text-sm font-medium text-white">
-                  {trip.distanceKm !== null ? `${trip.distanceKm.toFixed(1)} km` : 'distanza n/d'}
-                </span>
-              </div>
-              <span className="text-xs text-gray-500">
-                {trip.ritagli != null && trip.ritagli > 1 && (
-                  <span className="text-teal-300/80 mr-2">
-                    {trip.ritagli} ritagli ricomposti · sessione OBD
-                  </span>
-                )}
-                {formatDate(trip.startedAt)}
-              </span>
-            </div>
-
-            {/* Dati */}
-            <div className="grid grid-cols-2 gap-2">
-              {/* Attacca e rifinisce (§4.2): quando l'OBD ha misurato, la card
-                  mostra la misura col suo marcatore. Una cifra decimale sul
-                  SOC: il passo osservato è 0.784%, due decimali dichiarerebbero
-                  una precisione che non c'è. */}
-              <div className="rounded-lg bg-gray-800/60 p-2.5">
-                <p className="text-xs text-gray-500 mb-1">
-                  Batteria{trip.obd?.socStartObd != null && trip.obd?.socEndObd != null && ' · OBD'}
-                </p>
-                <p className="text-sm text-white font-light">
-                  {trip.obd?.socStartObd != null && trip.obd?.socEndObd != null
-                    ? `${trip.obd.socStartObd.toFixed(1)}% → ${trip.obd.socEndObd.toFixed(1)}%`
-                    : `${trip.startBattery}% → ${trip.endBattery ?? '—'}%`}
-                </p>
-              </div>
-
-              <div className="rounded-lg bg-gray-800/60 p-2.5">
-                <p className="text-xs text-gray-500 mb-1">
-                  Durata{trip.obd?.movingStart && trip.obd?.movingEnd && ' · OBD'}
-                </p>
-                <p className="text-sm text-white font-light">
-                  {trip.obd?.movingStart && trip.obd?.movingEnd
-                    ? formatDuration(trip.obd.movingStart, trip.obd.movingEnd)
-                    : formatDuration(trip.startedAt, trip.endedAt)}
-                </p>
-              </div>
-
-              <div className="rounded-lg bg-gray-800/60 p-2.5 flex items-start gap-2">
-                <TrendingDown size={12} className="text-red-400 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">Consumato</p>
-                  <p className="text-sm text-white font-light">
-                    {trip.energyUsedKwh !== null ? `${trip.energyUsedKwh.toFixed(1)} kWh` : 'n/d'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Manca sui viaggi ricostruiti dallo storico: dipende dal consumo
-                  medio Volvo del momento, che negli snapshot non è conservato.
-                  "Recupero netto" e non "rigenerato": dal solo SOC il recupero
-                  è osservabile unicamente a saldo positivo (discesa), il lordo
-                  arriverà dall'integrale di potenza (progetto-obd §4.2). */}
-              {trip.energyRegenKwh !== null && (
-                <div className="rounded-lg bg-gray-800/60 p-2.5 flex items-start gap-2">
-                  <Leaf size={12} className="text-emerald-400 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Recupero netto</p>
-                    <p className="text-sm text-white font-light">
-                      {trip.energyRegenKwh.toFixed(1)} kWh
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Il recupero LORDO è metrica solo di livello 1 (§4.2): dal
-                  saldo SOC si vede solo in discesa, dall'integrale si misura
-                  sempre. Verde-acqua: energia che entra. */}
-              {trip.obd?.energyRegenGrossKwh != null && trip.obd.energyRegenGrossKwh > 0.05 &&
-                trip.obd.powerCoverage != null && trip.obd.powerCoverage >= COPERTURA_LIVELLO_1 && (
-                <div className="rounded-lg bg-gray-800/60 p-2.5 flex items-start gap-2">
-                  <Leaf size={12} className="text-teal-300 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Recupero lordo · OBD</p>
-                    <p className="text-sm text-white font-light">
-                      {trip.obd.energyRegenGrossKwh.toFixed(1)} kWh
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Consumo medio, col badge della fonte: mai un numero senza sapere
-                da dove viene. */}
-            {(() => {
-              const consumo = consumoConFonte(trip);
-              return consumo && (
-                <div className="flex items-center justify-between border-t border-gray-700/50 pt-3">
-                  <span className="text-xs text-gray-500 flex items-center gap-1">
-                    <Zap size={11} />
-                    Consumo medio
-                    <span className="text-gray-600">· {consumo.fonte}</span>
-                  </span>
-                  <span className="text-sm text-white font-light">
-                    {consumo.valore.toFixed(1)} kWh/100km
-                  </span>
-                </div>
-              );
-            })()}
-
-            {/* La riga OBD: misure, non stime. Compare solo quando l'accoppiatore
-                ha agganciato campioni, e dichiara sempre la copertura. */}
-            {trip.obd && (
-              <div className="flex items-center justify-between border-t border-gray-700/50 pt-3">
-                <span className="text-xs text-gray-500 flex items-center gap-1">
-                  <Gauge size={11} className="text-blue-400" />
-                  {/* floor, non round: "100%" solo a copertura piena — mai
-                      dichiarare più di quanto misurato */}
-                  OBD · copertura {Math.floor(trip.obd.coverage * 100)}%
-                </span>
-                <span className="text-xs text-gray-400 font-light">
-                  {trip.obd.distanceObdKm !== null && trip.obd.distanceObdKm > 0 &&
-                    `${trip.obd.distanceObdKm.toFixed(1)} km misurati`}
-                  {trip.obd.distanceObdKm !== null && trip.obd.distanceObdKm > 0 &&
-                    trip.obd.maxSpeedKmh !== null && ' · '}
-                  {trip.obd.maxSpeedKmh !== null && `max ${Math.round(trip.obd.maxSpeedKmh)} km/h`}
-                  {trip.obd.distanceObdKm === null && trip.obd.maxSpeedKmh === null &&
-                    `${trip.obd.sampleCount} campioni senza canale veloce`}
-                </span>
-              </div>
-            )}
-          </div>
-        ))}
+        {ricomposti.map(trip =>
+          consumoConFonte(trip)?.misurato ? (
+            <CardMisurata
+              key={trip.id}
+              trip={trip}
+              confronto={confrontoPer(trip.id)}
+              onSalute={onSalute}
+            />
+          ) : (
+            <CardCompatta key={trip.id} trip={trip} />
+          )
+        )}
       </div>
     </div>
   );
