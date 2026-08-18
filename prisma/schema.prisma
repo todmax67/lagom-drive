@@ -217,3 +217,13 @@ model Trip {
 
   @@index([userId, startedAt])
 }
+// Il ponte di sessione del guscio: Volvo ID rifiuta il login nel WebView
+// (errore 14), quindi il login avviene nel browser di sistema e la sessione
+// rientra nel guscio con un codice monouso a vita breve.
+model PonteSessione {
+  codice    String   @id @default(cuid())
+  userId    String
+  claims    Json
+  scade     DateTime
+  createdAt DateTime @default(now())
+}
