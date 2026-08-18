@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
-import { Car, TrendingUp, MapPin, LogOut, RefreshCw, Settings, BarChart2, Route } from 'lucide-react';
+import { Car, LogOut, RefreshCw, Settings, BarChart2, Route, HeartPulse, FlaskConical } from 'lucide-react';
 import AddChargingSession from '@/components/dashboard/AddChargingSession';
 import LoginPage from '@/components/dashboard/LoginPage';
 import BatteryCard from '@/components/dashboard/BatteryCard';
@@ -22,7 +23,9 @@ import TripHistory from '@/components/dashboard/TripHistory';
 import RaccoltaFerma from '@/components/dashboard/RaccoltaFerma';
 import SondaBuongiorno from '@/components/dashboard/SondaBuongiorno';
 
-type Page = 'dashboard' | 'stats' | 'location' | 'charging' | 'trips' | 'settings';
+// La navigazione della bussola (§4.1): cinque voci più Impostazioni.
+// Statistiche e Posizione sono riassorbite in Oggi.
+type Page = 'dashboard' | 'charging' | 'trips' | 'salute' | 'settings';
 
 function Dashboard() {
   const [page, setPage] = useState<Page>('dashboard');
@@ -78,7 +81,7 @@ useEffect(() => {
       return (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           <div className="md:col-span-2 xl:col-span-1">
-            <BatteryCard battery={status.battery} />
+            <BatteryCard battery={status.battery} lastUpdated={status.lastUpdated} />
           </div>
           {/* Si nasconde da sola finché non esiste almeno una mattina in
               archivio; le classi di griglia stanno sulla sua radice, così
@@ -114,6 +117,42 @@ useEffect(() => {
       );
     }
 
+    // Salute (§4.4): la pagina esiste e dichiara l'attesa — il cold start
+    // onesto della bussola. I testimoni depongono, la sentenza matura.
+    if (page === 'salute') {
+      return (
+        <div className="max-w-2xl rounded-2xl border border-gray-700/50 bg-gray-800/50 p-6 flex flex-col gap-4">
+          <span className="text-xs font-semibold tracking-widest text-gray-400 uppercase flex items-center gap-2">
+            <HeartPulse size={13} className="text-rose-300" />
+            Salute della batteria
+          </span>
+          <p className="text-sm text-gray-300">
+            I tre testimoni stanno raccogliendo le deposizioni. La prima
+            sentenza piena richiede circa sei mesi di serie misurate: qui
+            comparirà quando i punti basteranno, non prima.
+          </p>
+          <div className="grid grid-cols-1 gap-2">
+            <div className="rounded-lg bg-gray-900/60 p-3">
+              <p className="text-xs text-gray-500 mb-1">Testimone A · registro SoH del BECM</p>
+              <p className="text-sm text-white font-light">94.36% dichiarato · in validazione: dev&apos;essere visto muoversi</p>
+            </div>
+            <div className="rounded-lg bg-gray-900/60 p-3">
+              <p className="text-xs text-gray-500 mb-1">Testimone B · coppie muro/pacco delle ricariche</p>
+              <p className="text-sm text-white font-light">prima coppia raccolta · ogni ricarica col contatore stringe la stima</p>
+            </div>
+            <div className="rounded-lg bg-gray-900/60 p-3">
+              <p className="text-xs text-gray-500 mb-1">Testimone C · integrali dei viaggi misurati</p>
+              <p className="text-sm text-white font-light">in raccolta dal 18 agosto · ogni viaggio registrato è un punto</p>
+            </div>
+          </div>
+          <p className="text-xs text-gray-600">
+            La capacità di lavoro resta 67 kWh finché la promozione non sarà un
+            atto deliberato, con abbastanza punti concordi (bussola §4.4).
+          </p>
+        </div>
+      );
+    }
+
     if (page === 'trips') {
       return (
         <div className="max-w-2xl">
@@ -122,21 +161,7 @@ useEffect(() => {
       );
     }
 
-    if (page === 'stats' && stats) {
-      return (
-        <div className="max-w-lg">
-          <StatsCard stats={stats} />
-        </div>
-      );
-    }
 
-    if (page === 'location' && location) {
-      return (
-        <div className="max-w-lg">
-          <LocationCard location={location} />
-        </div>
-      );
-    }
 
     if (page === 'settings') {
       return <SettingsPage />;
@@ -157,12 +182,22 @@ useEffect(() => {
               </h1>
               <p className="text-gray-500 text-sm mt-0.5">
                 {session?.user?.email}
-                {status?.isDriving && (
+                {/* Lo stato a tre posizioni della bussola (§4.1) */}
+                {status?.battery?.isCharging ? (
+                  <span className="ml-2 inline-flex items-center gap-1 text-xs text-teal-300 bg-teal-400/10 px-2 py-0.5 rounded-full">
+                    <span className="w-1.5 h-1.5 rounded-full bg-teal-300 animate-pulse" />
+                    In carica
+                  </span>
+                ) : status?.isDriving ? (
                   <span className="ml-2 inline-flex items-center gap-1 text-xs text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     In guida
                   </span>
-                )}
+                ) : status ? (
+                  <span className="ml-2 inline-flex items-center gap-1 text-xs text-gray-500 bg-gray-700/40 px-2 py-0.5 rounded-full">
+                    a riposo
+                  </span>
+                ) : null}
               </p>
             </div>
           </div>
@@ -171,21 +206,9 @@ useEffect(() => {
             <nav className="bg-gray-800/80 border border-gray-700/50 p-1.5 rounded-xl flex items-center gap-1">
               <NavButton
                 icon={<Car size={18} />}
-                label="Dashboard"
+                label="Oggi"
                 isActive={page === 'dashboard'}
                 onClick={() => setPage('dashboard')}
-              />
-              <NavButton
-                icon={<BarChart2 size={18} />}
-                label="Ricariche"
-                isActive={page === 'charging'}
-                onClick={() => setPage('charging')}
-              />
-              <NavButton
-                icon={<TrendingUp size={18} />}
-                label="Statistiche"
-                isActive={page === 'stats'}
-                onClick={() => setPage('stats')}
               />
               <NavButton
                 icon={<Route size={18} />}
@@ -194,11 +217,27 @@ useEffect(() => {
                 onClick={() => setPage('trips')}
               />
               <NavButton
-                icon={<MapPin size={18} />}
-                label="Posizione"
-                isActive={page === 'location'}
-                onClick={() => setPage('location')}
+                icon={<BarChart2 size={18} />}
+                label="Ricariche"
+                isActive={page === 'charging'}
+                onClick={() => setPage('charging')}
               />
+              <NavButton
+                icon={<HeartPulse size={18} />}
+                label="Salute"
+                isActive={page === 'salute'}
+                onClick={() => setPage('salute')}
+              />
+              {/* Il Lab vive in /obd: console, sonde, rituale — la quinta voce
+                  della bussola è un ponte, non una copia */}
+              <Link
+                href="/obd"
+                className="p-2.5 sm:px-3 rounded-lg text-gray-400 hover:text-white hover:bg-gray-700/50 transition-all flex items-center gap-1.5 text-sm"
+                title="Lab"
+              >
+                <FlaskConical size={18} />
+                <span className="hidden lg:inline">Lab</span>
+              </Link>
               <NavButton
                 icon={<Settings size={18} />}
                 label="Impostazioni"

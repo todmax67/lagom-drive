@@ -4,6 +4,9 @@ import React from 'react';
 
 type Props = {
   battery: VehicleStatus['battery'];
+  // Il badge fonte·freschezza della bussola (§4.1): ogni card dichiara da
+  // dove viene il suo numero e quanto è vecchio
+  lastUpdated?: string;
 };
 
 function getBatteryColor(level: number) {
@@ -19,7 +22,10 @@ function formatMinutes(minutes: number) {
   return `${h}h ${m}m`;
 }
 
-export default function BatteryCard({ battery }: Props) {
+export default function BatteryCard({ battery, lastUpdated }: Props) {
+  const etaMin = lastUpdated
+    ? Math.max(0, Math.round((Date.now() - Date.parse(lastUpdated)) / 60000))
+    : null;
   const barColor = getBatteryColor(battery.level);
 
   return (
@@ -30,6 +36,11 @@ export default function BatteryCard({ battery }: Props) {
         <span className="text-xs font-semibold tracking-widest text-gray-400 uppercase">
           Batteria
         </span>
+        {etaMin !== null && (
+          <span className="text-xs text-gray-600">
+            cloud · {etaMin < 1 ? 'ora' : `${etaMin} min`}
+          </span>
+        )}
         {battery.isCharging && (
           <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400 bg-emerald-400/10 px-2.5 py-1 rounded-full">
             <Zap size={11} />
