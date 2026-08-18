@@ -36,7 +36,7 @@ const num = (v: number | null | undefined, dec = 1, unita = '') =>
 function Riga({ etichetta, obd, cloud }: { etichetta: string; obd: string; cloud: string }) {
   return (
     <div className="grid grid-cols-3 gap-2 py-2 border-t border-gray-700/40 text-sm">
-      <span className="text-gray-500 text-xs self-center">{etichetta}</span>
+      <span className="text-gray-400 text-xs self-center">{etichetta}</span>
       <span className="text-white font-light">{obd}</span>
       <span className="text-gray-400 font-light">{cloud}</span>
     </div>
@@ -66,7 +66,7 @@ export default function AnalisiPage() {
           </Link>
           <div>
             <h1 className="text-xl font-light tracking-tight">Confronto OBD e cloud</h1>
-            <p className="text-gray-500 text-sm">Lo stesso tragitto misurato per due vie</p>
+            <p className="text-gray-400 text-sm">Lo stesso tragitto misurato per due vie</p>
           </div>
         </header>
 
@@ -84,7 +84,7 @@ export default function AnalisiPage() {
 
         {sessioni?.length === 0 && (
           <div className="rounded-2xl border border-gray-700/50 bg-gray-800/50 p-6">
-            <p className="text-gray-500 text-sm text-center">
+            <p className="text-gray-400 text-sm text-center">
               Nessuna registrazione OBD negli ultimi giorni.
             </p>
           </div>
@@ -99,7 +99,7 @@ export default function AnalisiPage() {
                   day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
                 })}
               </span>
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-gray-400">
                 {s.durataMin} min · {s.campioni} campioni
               </span>
             </div>
@@ -107,7 +107,7 @@ export default function AnalisiPage() {
             <div className="grid grid-cols-3 gap-2 text-xs">
               <span />
               <span className="text-blue-300 flex items-center gap-1"><Cpu size={11} /> OBD</span>
-              <span className="text-gray-500 flex items-center gap-1"><Cloud size={11} /> API Volvo</span>
+              <span className="text-gray-400 flex items-center gap-1"><Cloud size={11} /> API Volvo</span>
             </div>
 
             {(() => {
@@ -143,7 +143,7 @@ export default function AnalisiPage() {
               );
             })()}
 
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 pt-2 border-t border-gray-700/40">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-400 pt-2 border-t border-gray-700/40">
               <span>velocità max {num(s.velocitaMax, 0, ' km/h')}</span>
               <span>{s.livelliSoc} livelli di carica distinti</span>
               <span>intervallo max {s.intervalloMaxSec}s</span>
@@ -160,7 +160,7 @@ export default function AnalisiPage() {
           </div>
         ))}
 
-        <p className="text-xs text-gray-600">
+        <p className="text-xs text-gray-500">
           La distanza OBD è integrata dalla velocità: non esiste un PID odometro,
           ma con un campione ogni due secondi la somma regge. Quella cloud viene
           dal salto odometrico, che Volvo aggiorna solo a veicolo fermo.

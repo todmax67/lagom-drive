@@ -65,7 +65,7 @@ export default function ObdPage() {
     tipo === 'inviato' ? 'text-blue-400'
       : tipo === 'ricevuto' ? 'text-emerald-300'
         : tipo === 'errore' ? 'text-red-400'
-          : 'text-gray-500';
+          : 'text-gray-400';
 
   return (
     <div className="bg-gray-950 min-h-screen text-white font-sans">
@@ -76,7 +76,7 @@ export default function ObdPage() {
           </Link>
           <div>
             <h1 className="text-xl font-light tracking-tight">Console OBD</h1>
-            <p className="text-gray-500 text-sm">Collegamento diretto al dongle via Bluetooth</p>
+            <p className="text-gray-400 text-sm">Collegamento diretto al dongle via Bluetooth</p>
           </div>
           <Link
             href="/obd/analisi"
@@ -141,7 +141,7 @@ export default function ObdPage() {
                 <div key={s.uuid} className="text-xs font-mono">
                   <p className="text-blue-300">{s.uuid}</p>
                   {s.caratteristiche.map(c => (
-                    <p key={c.uuid} className="text-gray-500 pl-4">
+                    <p key={c.uuid} className="text-gray-400 pl-4">
                       {c.uuid} — {c.proprieta.join(', ')}
                     </p>
                   ))}
@@ -153,7 +153,7 @@ export default function ObdPage() {
 
         <div className="rounded-xl border border-gray-700/50 bg-black/40 p-4 h-96 overflow-y-auto font-mono text-xs flex flex-col gap-1">
           {righe.length === 0 && (
-            <p className="text-gray-600">
+            <p className="text-gray-500">
               Collega il dongle per iniziare. Poi prova <span className="text-gray-400">0100</span> (PID
               supportati), <span className="text-gray-400">ATDP</span> (protocollo attivo),
               oppure <span className="text-gray-400">0902</span> (VIN).
@@ -185,7 +185,7 @@ export default function ObdPage() {
           </button>
         </div>
 
-        <p className="text-xs text-gray-600">
+        <p className="text-xs text-gray-500">
           Le definizioni PID della piattaforma CMA non sono pubbliche: né OBDb né il
           repository di ABRP coprono Volvo. Questa console serve a scoprirle
           interrogando direttamente le centraline.

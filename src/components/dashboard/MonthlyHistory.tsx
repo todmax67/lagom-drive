@@ -65,7 +65,7 @@ export default function MonthlyHistory() {
       {/* Grafico */}
       {chartData.length > 1 && (
         <div>
-          <p className="text-xs text-gray-500 mb-3">Costo mensile (€)</p>
+          <p className="text-xs text-gray-400 mb-3">Costo mensile (€)</p>
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: -20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />

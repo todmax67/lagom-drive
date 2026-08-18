@@ -47,7 +47,7 @@ export default function StatCard({
         )}
       </div>
       {sub && (
-        <p className="text-xs text-gray-500">{sub}</p>
+        <p className="text-xs text-gray-400">{sub}</p>
       )}
     </div>
   );

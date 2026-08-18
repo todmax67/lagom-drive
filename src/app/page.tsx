@@ -153,7 +153,7 @@ useEffect(() => {
               <h1 className="text-2xl font-light text-white tracking-tight">
                 Lagom Drive
               </h1>
-              <p className="text-gray-500 text-sm mt-0.5">
+              <p className="text-gray-400 text-sm mt-0.5">
                 {session?.user?.email}
                 {/* Lo stato a tre posizioni della bussola (§4.1) */}
                 {status?.battery?.isCharging ? (
@@ -167,7 +167,7 @@ useEffect(() => {
                     In guida
                   </span>
                 ) : status ? (
-                  <span className="ml-2 inline-flex items-center gap-1 text-xs text-gray-500 bg-gray-700/40 px-2 py-0.5 rounded-full">
+                  <span className="ml-2 inline-flex items-center gap-1 text-xs text-gray-400 bg-gray-700/40 px-2 py-0.5 rounded-full">
                     a riposo
                   </span>
                 ) : null}

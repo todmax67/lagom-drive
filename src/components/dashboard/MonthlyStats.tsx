@@ -50,7 +50,7 @@ export default function MonthlyStats({
         <div className="rounded-xl bg-gray-900/60 p-4">
           <div className="flex items-center gap-2 mb-2">
             <Euro size={14} className="text-emerald-400" />
-            <span className="text-xs text-gray-500">Costo totale</span>
+            <span className="text-xs text-gray-400">Costo totale</span>
           </div>
           <p className="text-2xl font-light text-white">
             €{totalCost.toFixed(2)}
@@ -60,7 +60,7 @@ export default function MonthlyStats({
         <div className="rounded-xl bg-gray-900/60 p-4">
           <div className="flex items-center gap-2 mb-2">
             <Zap size={14} className="text-blue-400" />
-            <span className="text-xs text-gray-500">kWh ricaricati</span>
+            <span className="text-xs text-gray-400">kWh ricaricati</span>
           </div>
           <p className="text-2xl font-light text-white">
             {totalKwh.toFixed(1)}
@@ -70,12 +70,12 @@ export default function MonthlyStats({
         <div className="rounded-xl bg-gray-900/60 p-4">
           <div className="flex items-center gap-2 mb-2">
             <Home size={14} className="text-blue-400" />
-            <span className="text-xs text-gray-500">Casa</span>
+            <span className="text-xs text-gray-400">Casa</span>
           </div>
           <p className="text-lg font-light text-white">
             €{homeCost.toFixed(2)}
           </p>
-          <p className="text-xs text-gray-600 mt-1">
+          <p className="text-xs text-gray-500 mt-1">
             {homeSessions.length} sessioni
           </p>
         </div>
@@ -83,12 +83,12 @@ export default function MonthlyStats({
         <div className="rounded-xl bg-gray-900/60 p-4">
           <div className="flex items-center gap-2 mb-2">
             <MapPin size={14} className="text-amber-400" />
-            <span className="text-xs text-gray-500">Colonnina</span>
+            <span className="text-xs text-gray-400">Colonnina</span>
           </div>
           <p className="text-lg font-light text-white">
             €{publicCost.toFixed(2)}
           </p>
-          <p className="text-xs text-gray-600 mt-1">
+          <p className="text-xs text-gray-500 mt-1">
             {publicSessions.length} sessioni
           </p>
         </div>

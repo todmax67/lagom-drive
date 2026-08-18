@@ -63,7 +63,7 @@ export default function StatsCard({ stats }: { stats: VehicleStats }) {
         </div>
       </div>
 
-      <p className="text-xs text-gray-600 text-right">
+      <p className="text-xs text-gray-500 text-right">
         Aggiornato: {new Date(stats.lastUpdated).toLocaleTimeString('it-IT')}
       </p>
     </div>

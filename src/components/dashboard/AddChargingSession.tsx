@@ -77,14 +77,14 @@ export default function AddChargingSession({ onAdded }: Props) {
     <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-5 flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <span className="text-sm font-semibold text-white">Nuova ricarica manuale</span>
-        <button onClick={() => setOpen(false)} className="text-gray-500 hover:text-white">
+        <button onClick={() => setOpen(false)} className="text-gray-400 hover:text-white">
           <X size={16} />
         </button>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-gray-500">Data</label>
+          <label className="text-xs text-gray-400">Data</label>
           <input
             type="date"
             value={form.date}
@@ -94,7 +94,7 @@ export default function AddChargingSession({ onAdded }: Props) {
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-gray-500">Tipo</label>
+          <label className="text-xs text-gray-400">Tipo</label>
           <select
             value={form.chargingType}
             onChange={e => setForm(f => ({ ...f, chargingType: e.target.value }))}
@@ -106,7 +106,7 @@ export default function AddChargingSession({ onAdded }: Props) {
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-gray-500">Ora inizio</label>
+          <label className="text-xs text-gray-400">Ora inizio</label>
           <input
             type="time"
             value={form.startTime}
@@ -116,7 +116,7 @@ export default function AddChargingSession({ onAdded }: Props) {
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-gray-500">Ora fine</label>
+          <label className="text-xs text-gray-400">Ora fine</label>
           <input
             type="time"
             value={form.endTime}
@@ -126,7 +126,7 @@ export default function AddChargingSession({ onAdded }: Props) {
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-gray-500">Livello inizio (%)</label>
+          <label className="text-xs text-gray-400">Livello inizio (%)</label>
           <input
             type="number"
             min="0" max="100"
@@ -138,7 +138,7 @@ export default function AddChargingSession({ onAdded }: Props) {
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-gray-500">Livello fine (%)</label>
+          <label className="text-xs text-gray-400">Livello fine (%)</label>
           <input
             type="number"
             min="0" max="100"
@@ -150,7 +150,7 @@ export default function AddChargingSession({ onAdded }: Props) {
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-gray-500">Tariffa (€/kWh)</label>
+          <label className="text-xs text-gray-400">Tariffa (€/kWh)</label>
           <input
             type="number"
             step="0.01"
@@ -161,7 +161,7 @@ export default function AddChargingSession({ onAdded }: Props) {
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-gray-500">Luogo</label>
+          <label className="text-xs text-gray-400">Luogo</label>
           <input
             type="text"
             value={form.location}

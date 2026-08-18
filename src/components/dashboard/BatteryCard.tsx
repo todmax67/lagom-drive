@@ -37,7 +37,7 @@ export default function BatteryCard({ battery, lastUpdated }: Props) {
           Batteria
         </span>
         {etaMin !== null && (
-          <span className="text-xs text-gray-600">
+          <span className="text-xs text-gray-500">
             cloud · {etaMin < 1 ? 'ora' : `${etaMin} min`}
           </span>
         )}
@@ -74,7 +74,7 @@ export default function BatteryCard({ battery, lastUpdated }: Props) {
       {/* Info inferiori */}
       <div className="grid grid-cols-2 gap-3 pt-1">
         <div className="rounded-xl bg-gray-900/60 p-3">
-          <p className="text-xs text-gray-500 mb-1">Autonomia</p>
+          <p className="text-xs text-gray-400 mb-1">Autonomia</p>
           <p className="text-lg font-light text-white">
             {battery.range} <span className="text-sm text-gray-400">km</span>
           </p>
@@ -82,14 +82,14 @@ export default function BatteryCard({ battery, lastUpdated }: Props) {
 
         {battery.isCharging && battery.estimatedMinutes != null ? (
           <div className="rounded-xl bg-gray-900/60 p-3">
-            <p className="text-xs text-gray-500 mb-1">Completamento</p>
+            <p className="text-xs text-gray-400 mb-1">Completamento</p>
             <p className="text-lg font-light text-white">
               {formatMinutes(battery.estimatedMinutes)}
             </p>
           </div>
         ) : (
           <div className="rounded-xl bg-gray-900/60 p-3">
-            <p className="text-xs text-gray-500 mb-1">Stato</p>
+            <p className="text-xs text-gray-400 mb-1">Stato</p>
             <p className="text-lg font-light text-white">
               {battery.isConnected ? 'Connessa' : 'Disconnessa'}
             </p>
@@ -100,7 +100,7 @@ export default function BatteryCard({ battery, lastUpdated }: Props) {
       {/* Dettagli ricarica */}
       {battery.isCharging && battery.currentAmps != null && battery.voltageVolts != null && (
         <div className="border-t border-gray-700/50 pt-4 flex items-center justify-between text-sm">
-          <span className="text-gray-500">
+          <span className="text-gray-400">
             {battery.currentAmps} A · {battery.voltageVolts} V
           </span>
           <span className="text-emerald-400 font-medium">

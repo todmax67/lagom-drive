@@ -18,7 +18,7 @@ export default function LoginPage({ notice }: { notice?: string }) {
           <h1 className="text-4xl font-light text-white tracking-tight mb-2">
             Lagom Drive
           </h1>
-          <p className="text-gray-500 text-sm">
+          <p className="text-gray-400 text-sm">
             Dashboard per la tua Volvo elettrica
           </p>
         </div>

@@ -4,7 +4,7 @@ export default function LoadingSpinner({ fullScreen = false }: { fullScreen?: bo
     return (
       <div className="bg-gray-950 min-h-screen flex flex-col items-center justify-center gap-4">
         <div className="w-12 h-12 rounded-full border-2 border-gray-700 border-t-blue-500 animate-spin" />
-        <p className="text-gray-500 text-sm tracking-widest uppercase">Caricamento</p>
+        <p className="text-gray-400 text-sm tracking-widest uppercase">Caricamento</p>
       </div>
     );
   }

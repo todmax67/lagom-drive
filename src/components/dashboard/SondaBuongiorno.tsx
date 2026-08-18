@@ -84,7 +84,7 @@ export default function SondaBuongiorno() {
             ? 'text-emerald-300 bg-emerald-400/10'
             : dati.oggiNonARiposo
               ? 'text-amber-300 bg-amber-400/10'
-              : 'text-gray-500 bg-gray-700/40'
+              : 'text-gray-400 bg-gray-700/40'
         }`}>
           {dati.fattaOggi ? 'fatta' : dati.oggiNonARiposo ? 'fatta, non a riposo' : 'da fare'}
         </span>
@@ -92,12 +92,12 @@ export default function SondaBuongiorno() {
 
       <div className="grid grid-cols-2 gap-2">
         <div className="rounded-lg bg-gray-900/60 p-2.5">
-          <p className="text-xs text-gray-500 mb-1">Batteria 12V</p>
+          <p className="text-xs text-gray-400 mb-1">Batteria 12V</p>
           <p className="text-sm text-white font-light">
             {ultima.batt12v != null ? `${ultima.batt12v.toFixed(2)} V` : 'n/d'}
             {delta12v != null && (
               <span className={`text-xs ml-1.5 ${
-                delta12v < -0.15 ? 'text-amber-300' : 'text-gray-500'
+                delta12v < -0.15 ? 'text-amber-300' : 'text-gray-400'
               }`}>
                 {delta12v >= 0 ? '+' : ''}{delta12v.toFixed(2)} {etichettaConfronto}
               </span>
@@ -106,21 +106,21 @@ export default function SondaBuongiorno() {
         </div>
 
         <div className="rounded-lg bg-gray-900/60 p-2.5">
-          <p className="text-xs text-gray-500 mb-1">Pacco a riposo</p>
+          <p className="text-xs text-gray-400 mb-1">Pacco a riposo</p>
           <p className="text-sm text-white font-light">
             {ultima.packVoltage != null ? `${ultima.packVoltage.toFixed(1)} V` : 'n/d'}
           </p>
         </div>
 
         <div className="rounded-lg bg-gray-900/60 p-2.5">
-          <p className="text-xs text-gray-500 mb-1">Carica · {ultima.socDaCloud ? "cloud" : "OBD"}</p>
+          <p className="text-xs text-gray-400 mb-1">Carica · {ultima.socDaCloud ? "cloud" : "OBD"}</p>
           <p className="text-sm text-white font-light">
             {ultima.socDisplay != null ? `${ultima.socDisplay.toFixed(1)} %` : 'n/d'}
           </p>
         </div>
 
         <div className="rounded-lg bg-gray-900/60 p-2.5">
-          <p className="text-xs text-gray-500 mb-1">SoH · in validazione</p>
+          <p className="text-xs text-gray-400 mb-1">SoH · in validazione</p>
           {/* Grezzo di proposito: finché il registro non si muove nel tempo,
               interpretarlo come percentuale dichiarerebbe più del misurato. */}
           <p className="text-xs text-white font-mono pt-1">{ultima.sohGrezzo ?? 'n/d'}</p>
@@ -129,9 +129,9 @@ export default function SondaBuongiorno() {
 
       {registroKwh != null && (
         <div className="flex items-center justify-between border-t border-gray-700/50 pt-3">
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-gray-400">
             Registro {etichettaConfronto === 'da ieri' ? 'da ieri' : etichettaConfronto}
-            <span className="text-gray-600"> · dedotto · ΔSoC × capacità</span>
+            <span className="text-gray-500"> · dedotto · ΔSoC × capacità</span>
           </span>
           <span className={`text-sm font-light ${registroKwh < 0 ? 'text-rose-300' : 'text-teal-300'}`}>
             {registroKwh >= 0 ? '+' : ''}{registroKwh.toFixed(1)} kWh
@@ -140,7 +140,7 @@ export default function SondaBuongiorno() {
       )}
 
       <div className="flex items-center justify-between">
-        <span className="text-xs text-gray-600">ultima: {dataUltima}</span>
+        <span className="text-xs text-gray-500">ultima: {dataUltima}</span>
         <Link href="/obd" className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-0.5">
           rituale <ChevronRight size={12} />
         </Link>

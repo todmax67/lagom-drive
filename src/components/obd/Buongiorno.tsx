@@ -91,10 +91,10 @@ export default function Buongiorno({ canale }: { canale: Canale | null }) {
           <Sunrise size={15} className="text-amber-300" />
           Sonda del buongiorno
         </span>
-        {passo && <span className="text-xs text-gray-500">{passo}</span>}
+        {passo && <span className="text-xs text-gray-400">{passo}</span>}
       </div>
 
-      <p className="text-xs text-gray-500">
+      <p className="text-xs text-gray-400">
         Una lettura ad auto riposata, prima di partire: 12V, tensione di pacco,
         carica e i candidati in validazione. Meno di un minuto, e viene salvata.
       </p>
@@ -108,12 +108,12 @@ export default function Buongiorno({ canale }: { canale: Canale | null }) {
         {inCorso ? 'In corso…' : 'Esegui il buongiorno'}
       </button>
       {!token && (
-        <p className="text-xs text-gray-600">
+        <p className="text-xs text-gray-500">
           Serve il token del dispositivo: si crea dal Registratore qui sotto.
         </p>
       )}
       {occupazione !== null && occupazione !== 'buongiorno' && (
-        <p className="text-xs text-gray-600">
+        <p className="text-xs text-gray-500">
           Ferma prima la registrazione: il rituale vuole l&apos;auto a riposo e
           il canale tutto per sé.
         </p>
@@ -159,7 +159,7 @@ export default function Buongiorno({ canale }: { canale: Canale | null }) {
 function Tessera({ etichetta, valore, mono }: { etichetta: string; valore: string; mono?: boolean }) {
   return (
     <div className="rounded-lg bg-gray-900/60 p-2.5">
-      <p className="text-xs text-gray-500 mb-1">{etichetta}</p>
+      <p className="text-xs text-gray-400 mb-1">{etichetta}</p>
       <p className={`text-sm text-white font-light ${mono ? 'font-mono text-xs pt-1' : ''}`}>{valore}</p>
     </div>
   );
