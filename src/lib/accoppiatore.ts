@@ -47,16 +47,27 @@ async function arricchisci(viaggio: {
     }),
   ]);
 
+  // Il confine col vicino è il PUNTO MEDIO del buco, non il bordo del vicino:
+  // col bordo, l'intervallo fra due ritagli apparteneva a ENTRAMBE le finestre
+  // e la card ricomposta contava due volte l'energia del semaforo. Col punto
+  // medio ogni campione del buco cade in una finestra sola; il segmento a
+  // cavallo del punto non lo integra nessuno — meglio un secondo non contato
+  // che un doppio conteggio spacciato per misurato. Sulle soste lunghe
+  // (> 40 min) il margine resta il vincolo attivo: niente cambia.
   const inizioFinestra = new Date(
     Math.max(
       viaggio.startedAt.getTime() - MARGINE_MS,
-      precedente?.endedAt?.getTime() ?? 0
+      precedente?.endedAt
+        ? Math.floor((precedente.endedAt.getTime() + viaggio.startedAt.getTime()) / 2)
+        : 0
     )
   );
   const fineFinestra = new Date(
     Math.min(
       viaggio.endedAt.getTime() + MARGINE_MS,
-      successivo?.startedAt.getTime() ?? Infinity
+      successivo?.startedAt
+        ? Math.ceil((viaggio.endedAt.getTime() + successivo.startedAt.getTime()) / 2)
+        : Infinity
     )
   );
 
@@ -74,15 +85,25 @@ async function arricchisci(viaggio: {
     campioni
   );
 
-  // Nessun campione utile: nessuna riga. Un viaggio senza OBD è il caso
-  // normale, non un arricchimento vuoto da conservare.
-  if (!esito) return;
+  // Nessun campione utile: nessuna riga — e se una riga c'era (campioni poi
+  // respinti o riattribuiti), va tolta: un derivato stantio è peggio di
+  // nessun derivato. deleteMany è no-op quando non esiste.
+  if (!esito) {
+    await prisma.tripEnrichment.deleteMany({ where: { tripId: viaggio.id } }).catch(() => {});
+    return;
+  }
 
   // La sessione dominante fra i campioni agganciati: se i campioni di questa
   // finestra vengono quasi tutti dalla stessa sessione, il viaggio e' un
   // ritaglio di quella guida — e la UI puo' ricomporre i ritagli contigui.
+  // La dominanza si giudica DENTRO la base del viaggio: sui margini vivono i
+  // campioni dei vicini, e un viaggio non registrato non deve ereditare la
+  // sessione della guida accanto.
+  const inBase = campioni.filter(
+    c => c.recordedAt >= esito.baseInizio && c.recordedAt <= esito.baseFine
+  );
   const conteggi = new Map<string, number>();
-  for (const c of campioni) {
+  for (const c of inBase) {
     if (c.sessionId) conteggi.set(c.sessionId, (conteggi.get(c.sessionId) ?? 0) + 1);
   }
   let sessioneDominante: string | null = null;
@@ -90,8 +111,8 @@ async function arricchisci(viaggio: {
   for (const [id, n] of conteggi) {
     if (n > massimo) { massimo = n; sessioneDominante = id; }
   }
-  // Dominante davvero: piu' della meta' dei campioni agganciati
-  if (massimo <= campioni.length / 2) sessioneDominante = null;
+  // Dominante davvero: piu' della meta' dei campioni della base
+  if (massimo <= inBase.length / 2) sessioneDominante = null;
 
   const dati = {
     userId: viaggio.userId,

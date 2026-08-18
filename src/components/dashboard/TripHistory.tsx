@@ -44,7 +44,7 @@ interface Trip {
  * conta niente due volte. Il rilevatore non viene toccato: i ritagli restano
  * in tabella, è la presentazione che li ricompone.
  */
-function ricomponi(viaggi: Trip[]): Trip[] {
+function ricomponi(viaggi: Trip[], codaTronca: boolean): Trip[] {
   const out: Trip[] = [];
   let gruppo: Trip[] = [];
 
@@ -65,23 +65,47 @@ function ricomponi(viaggi: Trip[]): Trip[] {
       for (const v of gruppo) { const x = f(v); if (x == null) return null; s += x; }
       return s;
     };
-    const minPot = gruppo.every(v => v.obd?.powerCoverage != null)
-      ? Math.min(...gruppo.map(v => v.obd!.powerCoverage!))
-      : null;
+    // Coperture pesate sulla durata dei ritagli, non il minimo: un ritaglio
+    // da 30 secondi non deve dettare la statistica di una guida da 30 minuti
+    const durataMs = (v: Trip) => {
+      const a = v.obd?.movingStart ?? v.startedAt;
+      const b = v.obd?.movingEnd ?? v.endedAt ?? v.startedAt;
+      return Math.max(0, Date.parse(b) - Date.parse(a));
+    };
+    const durataTot = gruppo.reduce((s, v) => s + durataMs(v), 0);
+    const pesata = (f: (v: Trip) => number | null | undefined): number | null => {
+      if (durataTot === 0) return null;
+      let s = 0;
+      for (const v of gruppo) {
+        const x = f(v);
+        if (x == null) return null;
+        s += x * durataMs(v);
+      }
+      return s / durataTot;
+    };
+    const potPesata = pesata(v => v.obd?.powerCoverage);
+    // Il dedotto della guida intera, con le stesse soglie di onesta' del
+    // rilevatore: sotto, meglio nessun valore che uno inventato
+    const kmFusi = somma(v => v.distanceKm);
+    const energiaFusa = somma(v => v.energyUsedKwh);
+    const dedottoFuso =
+      kmFusi != null && kmFusi >= 10 && energiaFusa != null && energiaFusa >= 1.3
+        ? (energiaFusa / kmFusi) * 100
+        : null;
     out.push({
       id: gruppo.map(v => v.id).join('+'),
       startedAt: vecchio.startedAt,
       endedAt: nuovo.endedAt,
-      distanceKm: somma(v => v.distanceKm),
+      distanceKm: kmFusi,
       startBattery: vecchio.startBattery,
       endBattery: nuovo.endBattery,
-      energyUsedKwh: somma(v => v.energyUsedKwh),
-      energyRegenKwh: null,
-      avgConsumption: null,
+      energyUsedKwh: energiaFusa,
+      energyRegenKwh: somma(v => v.energyRegenKwh),
+      avgConsumption: dedottoFuso,
       volvoAvgConsumption: null,
       ritagli: gruppo.length,
       obd: {
-        coverage: Math.min(...gruppo.map(v => v.obd!.coverage)),
+        coverage: pesata(v => v.obd?.coverage) ?? Math.min(...gruppo.map(v => v.obd!.coverage)),
         sampleCount: gruppo.reduce((s, v) => s + (v.obd?.sampleCount ?? 0), 0),
         distanceObdKm: somma(v => v.obd?.distanceObdKm),
         maxSpeedKmh: gruppo.some(v => v.obd?.maxSpeedKmh != null)
@@ -93,7 +117,7 @@ function ricomponi(viaggi: Trip[]): Trip[] {
         movingEnd: nuovo.obd?.movingEnd ?? null,
         energyGrossKwh: somma(v => v.obd?.energyGrossKwh),
         energyRegenGrossKwh: somma(v => v.obd?.energyRegenGrossKwh),
-        powerCoverage: minPot,
+        powerCoverage: potPesata,
         sessionId: nuovo.obd?.sessionId ?? null,
       },
     });
@@ -108,6 +132,13 @@ function ricomponi(viaggi: Trip[]): Trip[] {
     }
     chiudi();
     gruppo = [v];
+  }
+  // L'ultimo gruppo puo' essere tagliato dal limite di pagina della API: un
+  // ritaglio fuori lista darebbe una card "ricomposta" con somme parziali.
+  // In coda tronca, l'ultimo gruppo resta in ritagli singoli.
+  if (codaTronca && gruppo.length > 1) {
+    for (const v of gruppo) out.push(v);
+    gruppo = [];
   }
   chiudi();
   return out;
@@ -205,7 +236,7 @@ export default function TripHistory() {
       </span>
 
       <div className="flex flex-col gap-3">
-        {ricomponi(trips).map(trip => (
+        {ricomponi(trips, trips.length >= 50).map(trip => (
           <div key={trip.id} className="rounded-xl bg-gray-900/60 p-4 flex flex-col gap-3">
             {/* Header */}
             <div className="flex items-center justify-between">

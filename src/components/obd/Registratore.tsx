@@ -43,7 +43,9 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
 
   // I ref evitano le chiusure obsolete: il ciclo di lettura sopravvive ai render
   const attivoRef = useRef(false);
-  const bufferRef = useRef<Campione[]>([]);
+  // Ogni campione porta la SUA sessione dal momento dell'accodamento: i resti
+  // in coda di una sessione non devono uscire con l'etichetta della successiva
+  const bufferRef = useRef<{ sid: string; contesto: string; c: Campione }[]>([]);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   // L'ultima velocità dal GPS: {kmh, quando}. speed può mancare (dipende dal
   // dispositivo): si ricava dalle coordinate successive quando serve.
@@ -54,6 +56,9 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
   // L'identità della sessione (bussola par. 5.2): generata all'avvio, viaggia
   // con ogni lotto. È lei che permette di ricomporre i ritagli del cloud.
   const idSessioneRef = useRef<string | null>(null);
+  // Il contesto si promuove e basta: nato 'libero', diventa 'viaggio' alla
+  // prima marcia e non torna indietro (il server applica la stessa regola)
+  const contestoRef = useRef<'libero' | 'viaggio'>('libero');
   const ultimoMotoRef = useRef(0);
   const sessioneRef = useRef(0);
   const [regime, setRegime] = useState<'sosta' | 'viaggio'>('sosta');
@@ -84,23 +89,38 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
   };
 
   const svuota = useCallback(async () => {
-    const daInviare = bufferRef.current;
-    if (daInviare.length === 0 || !token) return;
-    bufferRef.current = [];
+    if (bufferRef.current.length === 0 || !token) return;
+    // Una fetta per volta, tutta della stessa sessione e sotto il limite del
+    // server (500): la coda dopo una galleria puo' superare il lotto massimo,
+    // e un 413 butterebbe proprio i campioni che la coda doveva salvare.
+    const sid = bufferRef.current[0].sid;
+    const contesto = bufferRef.current[0].contesto;
+    let n = 0;
+    while (n < bufferRef.current.length && n < 450 && bufferRef.current[n].sid === sid) n++;
+    const fetta = bufferRef.current.slice(0, n);
+    bufferRef.current = bufferRef.current.slice(n);
+
+    const rimettiInCoda = () => {
+      bufferRef.current = [...fetta, ...bufferRef.current].slice(-600);
+    };
 
     try {
       const r = await fetch('/api/obd/ingest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          samples: daInviare,
-          sessionId: idSessioneRef.current,
-          context: 'libero',
+          samples: fetta.map(x => x.c),
+          sessionId: sid,
+          context: contesto,
           appVersion: process.env.NEXT_PUBLIC_APP_SHA,
         }),
       });
       const d = await r.json();
       if (!r.ok) {
+        // 5xx e 413 sono transitori: la fetta torna in coda. Un 4xx
+        // deterministico (400/401) no, o un lotto avvelenato girerebbe per
+        // sempre.
+        if (r.status >= 500 || r.status === 413) rimettiInCoda();
         setMessaggio(`Invio rifiutato (${r.status}): ${d.message ?? ''}`);
         return;
       }
@@ -111,11 +131,10 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
         scartati: c.scartati + (d.rejected ?? 0),
       }));
     } catch (err) {
-      // Rete assente (galleria, parcheggio interrato): i campioni tornano in
-      // testa al buffer e ripartono al giro dopo. Il tetto evita l'accumulo
-      // infinito: oltre ~20 minuti di coda, i più vecchi si sacrificano —
-      // dedupe lato server rende innocuo qualunque rinvio.
-      bufferRef.current = [...daInviare, ...bufferRef.current].slice(-600);
+      // Rete assente (galleria, parcheggio interrato): la fetta torna in coda
+      // e riparte al giro dopo. Il tetto evita l'accumulo infinito; il dedupe
+      // lato server rende innocuo qualunque rinvio.
+      rimettiInCoda();
       setMessaggio('Invio fallito, campioni in coda: ' + (err instanceof Error ? err.message : String(err)));
     }
   }, [token]);
@@ -192,6 +211,7 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
     if (!canale || attivoRef.current) return;
     const mioId = ++sessioneRef.current;
     idSessioneRef.current = crypto.randomUUID();
+    contestoRef.current = 'libero';
     setAttivo(true);
     attivoRef.current = true;
     occupaCanale('registratore');
@@ -227,7 +247,11 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
       const conValori = Object.keys(campione).length > 1;
       if (conValori) {
         setUltimo(campione);
-        bufferRef.current.push(campione);
+        bufferRef.current.push({
+          sid: idSessioneRef.current ?? '',
+          contesto: contestoRef.current,
+          c: campione,
+        });
         setConteggi(c => ({ ...c, letti: c.letti + 1 }));
       }
       if (errori.length) setMessaggio(errori[0]);
@@ -239,6 +263,7 @@ export default function Registratore({ canale }: { canale: Canale | null }) {
       while (vivo()) {
         const inizio = Date.now();
         const viaggio = inMovimento();
+        if (viaggio) contestoRef.current = 'viaggio';
         setRegime(viaggio ? 'viaggio' : 'sosta');
 
         if (viaggio) {
