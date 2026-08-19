@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Bluetooth, Send, Trash2, ArrowLeft, AlertTriangle, Radar } from 'lucide-react';
 import { collega, ricollega, supportato, INIT, type Canale, type ServizioScoperto } from '@/lib/elm327';
-import { collegaNativo, nativo } from '@/lib/canale-nativo';
+import { collegaNativo, nativo, presidioNativoStato } from '@/lib/canale-nativo';
 import Registratore from '@/components/obd/Registratore';
 import Sonda from '@/components/obd/Sonda';
 import Buongiorno from '@/components/obd/Buongiorno';
@@ -30,6 +30,10 @@ export default function ObdPage() {
   // Il presidio (bussola §5.6): l'app si aggancia da sola al dongle, registra
   // da sola, si riaggancia da sola. Persistito: Tasker apre la pagina e basta.
   const [presidio, setPresidio] = useState(false);
+  // Lo stato VERO del servizio nativo: senza notifica persistente non c'è
+  // servizio in primo piano, e a schermo spento la raccolta muore. Va visto
+  // qui, alla scrivania, non scoperto dopo un viaggio perso.
+  const [servizio, setServizio] = useState<{ attivo: boolean; notifiche: boolean } | null>(null);
   const presidioRef = useRef(false);
   // Distingue la disconnessione VOLUTA (bottone, auto-stop) dalla caduta BLE:
   // solo la caduta merita il riaggancio
@@ -126,6 +130,14 @@ export default function ObdPage() {
     presidioRef.current = attivo;
     if (attivo) tentaAggancio();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!nativo()) return;
+    const leggi = () => { presidioNativoStato().then(setServizio); };
+    leggi();
+    const id = setInterval(leggi, 5000);
+    return () => clearInterval(id);
   }, []);
 
   const togglePresidio = () => {
@@ -275,6 +287,15 @@ export default function ObdPage() {
             Presidio attivo: la pagina si aggancia da sola al dongle conosciuto,
             avvia la registrazione, si riaggancia se il canale cade e chiude
             quando il bus tace. Basta aprirla — o farla aprire a Tasker.
+          </p>
+        )}
+
+        {nativo() && servizio && (
+          <p className={`text-xs ${servizio.notifiche ? 'text-gray-400' : 'text-amber-300/90'}`}>
+            Servizio in primo piano: {servizio.attivo ? 'attivo' : 'fermo'} ·
+            notifica persistente: {servizio.notifiche ? 'permessa' : 'NEGATA'}
+            {!servizio.notifiche &&
+              ' — senza, a schermo spento Android congela la raccolta. Concedila da Impostazioni Android → App → Lagom Drive → Notifiche.'}
           </p>
         )}
 

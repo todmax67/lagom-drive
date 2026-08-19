@@ -67,6 +67,26 @@ export async function presidioNativoAvvia(): Promise<EsitoPresidio> {
   }
 }
 
+/**
+ * Lo stato vero del servizio, per la UI: gira davvero? la notifica è
+ * permessa? null sul web puro, dove non c'è servizio da interrogare.
+ */
+export async function presidioNativoStato(): Promise<
+  { attivo: boolean; notifiche: boolean } | null
+> {
+  const plugin = (window as unknown as FinestraCapacitor).Capacitor?.Plugins?.Presidio;
+  if (!plugin?.stato) return null;
+  try {
+    const r = (await plugin.stato({})) as unknown as {
+      attivo?: boolean;
+      notifiche?: boolean;
+    };
+    return { attivo: !!r?.attivo, notifiche: r?.notifiche !== false };
+  } catch {
+    return null;
+  }
+}
+
 export async function presidioNativoFerma(): Promise<void> {
   try {
     const plugin = (window as unknown as FinestraCapacitor).Capacitor?.Plugins?.Presidio;
