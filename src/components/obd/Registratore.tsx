@@ -6,7 +6,7 @@ import { PID_SUPPORTATI, leggiCampione, type Campione } from '@/lib/obd-pids';
 import { leggiDidVolvo, preparaBECM, ripristinaStandard, leggiVI } from '@/lib/volvo-uds';
 import { sottoscriviToken, leggiToken, scriviToken } from '@/lib/token-dispositivo';
 import { sottoscriviOccupazione, leggiOccupazione, occupaCanale } from '@/lib/occupazione-canale';
-import { presidioNativoAvvia, presidioNativoFerma, nativo } from '@/lib/canale-nativo';
+import { presidioNativoAvvia, presidioNativoFerma, suBattitoNativo, nativo } from '@/lib/canale-nativo';
 import type { Canale } from '@/lib/elm327';
 
 const INTERVALLO_MS = 2000;
@@ -89,6 +89,21 @@ export default function Registratore({
   const cicloVivoRef = useRef(false);
   // Guardia anti-sovrapposizione per gli invii sparati senza attesa
   const invioInCorsoRef = useRef(false);
+  // Il metronomo del ciclo: a schermo spento Chromium congela i setTimeout
+  // della pagina nascosta (visto sul campo: 24 minuti persi il 19 agosto,
+  // buchi da 10 minuti la sera stessa CON servizio in primo piano attivo).
+  // Il battito nativo del presidio risolve l'attesa in corso e fa spirare i
+  // comandi scaduti: il ciclo cammina anche coi timer morti.
+  const attesaRef = useRef<{ risolvi: () => void; scadeA: number } | null>(null);
+  const fermaBattitoRef = useRef<(() => void) | null>(null);
+  // Il canale DEL CICLO in volo, non quello del prop: dopo una caduta il prop
+  // è già null (o è il canale nuovo) mentre il vecchio giro ha ancora un
+  // comando da far spirare — il battito deve raggiungere QUEL protocollo
+  const canaleDelCicloRef = useRef<Canale | null>(null);
+  const gpsPluginIdRef = useRef<string | null>(null);
+  // La generazione del GPS: l'id del watch nativo arriva da una Promise, e un
+  // fermaGps nel varco deve poter uccidere il watch appena nato
+  const gpsGenerazioneRef = useRef(0);
   const [regime, setRegime] = useState<'sosta' | 'viaggio'>('sosta');
   const [gpsStato, setGpsStato] = useState<'ok' | 'negato' | 'assente' | null>(null);
   // Il guasto del servizio nativo, quando c'è: non deve restare muto
@@ -196,33 +211,99 @@ export default function Registratore({
     svuotaTuttoRef.current = svuotaTutto;
   }, [svuotaTutto]);
 
+  // L'attesa che regge anche coi timer congelati: si arma sul battito nativo
+  // e tiene il setTimeout come via veloce quando i timer vivono
+  const dormi = (ms: number) =>
+    new Promise<void>(risolvi => {
+      const io = { risolvi, scadeA: Date.now() + ms };
+      attesaRef.current = io;
+      setTimeout(() => {
+        if (attesaRef.current === io) {
+          attesaRef.current = null;
+          risolvi();
+        }
+      }, ms);
+    });
+
+  // Un colpo del battito nativo: sveglia l'attesa matura e fa spirare i
+  // comandi rimasti senza risposta (o la coda half-duplex resterebbe muta)
+  const colpoDiBattito = useCallback(() => {
+    canaleDelCicloRef.current?.battito();
+    const a = attesaRef.current;
+    if (a && Date.now() >= a.scadeA) {
+      attesaRef.current = null;
+      a.risolvi();
+    }
+  }, []);
+
+  // Il lavoro sul fix, comune ai due trasporti (pagina e plugin nativo)
+  const lavoraPosizione = (pos: {
+    timestamp: number;
+    coords: {
+      latitude: number;
+      longitude: number;
+      accuracy: number | null;
+      speed: number | null;
+    };
+  }) => {
+    // Il tempo del fix, non quello del callback: su Android possono
+    // divergere di secondi, e il dt sbagliato inventa velocità.
+    const t = pos.timestamp;
+    // Un fix impreciso non è una misura: il jitter da fermo con 30 m di
+    // errore produce chilometri orari fantasma.
+    if (pos.coords.accuracy != null && pos.coords.accuracy > 25) return;
+    let kmh: number | null = pos.coords.speed !== null ? pos.coords.speed * 3.6 : null;
+    if (kmh === null && posPrecRef.current) {
+      const dt = (t - posPrecRef.current.t) / 1000;
+      if (dt > 0.5) {
+        const dLat = (pos.coords.latitude - posPrecRef.current.lat) * 111_320;
+        const dLon = (pos.coords.longitude - posPrecRef.current.lon) * 111_320 *
+          Math.cos((pos.coords.latitude * Math.PI) / 180);
+        kmh = (Math.hypot(dLat, dLon) / dt) * 3.6;
+      }
+    }
+    posPrecRef.current = { lat: pos.coords.latitude, lon: pos.coords.longitude, t };
+    if (kmh === null || !Number.isFinite(kmh) || kmh > 250) return;
+    // Sotto i 3 km/h il GPS da fermo produce rumore, non velocità
+    if (kmh < 3) kmh = 0;
+    gpsRef.current = { kmh, quando: Date.now() };
+    if (kmh >= SOGLIA_VIAGGIO_KMH) ultimoMotoRef.current = Date.now();
+  };
+
   const avviaGps = () => {
+    if (nativo()) {
+      // La geolocation della pagina va in pausa quando la pagina è nascosta
+      // (schermo spento): è documentato e visto sul campo — nell'andata persa
+      // il GPS non ha mai superato i 5 km/h. Il plugin nativo consegna i fix
+      // via bridge, che vive anche a pagina nascosta; il servizio in primo
+      // piano ha il tipo location proprio per questo.
+      const gen = gpsGenerazioneRef.current;
+      import('@capacitor/geolocation')
+        .then(async ({ Geolocation }) => {
+          const id = await Geolocation.watchPosition(
+            { enableHighAccuracy: true, timeout: 8000 },
+            (pos, err) => {
+              if (err || !pos) { setGpsStato('negato'); return; }
+              setGpsStato('ok');
+              lavoraPosizione(pos);
+            }
+          );
+          if (gpsGenerazioneRef.current !== gen) {
+            // fermaGps è passato nel varco della Promise: il watch appena
+            // nato non ha più un padrone e muore subito
+            Geolocation.clearWatch({ id }).catch(() => {});
+            return;
+          }
+          gpsPluginIdRef.current = id;
+        })
+        .catch(() => setGpsStato('negato'));
+      return;
+    }
     if (!navigator.geolocation) { setGpsStato('assente'); return; }
     gpsWatchRef.current = navigator.geolocation.watchPosition(
       pos => {
         setGpsStato('ok');
-        // Il tempo del fix, non quello del callback: su Android possono
-        // divergere di secondi, e il dt sbagliato inventa velocità.
-        const t = pos.timestamp;
-        // Un fix impreciso non è una misura: il jitter da fermo con 30 m di
-        // errore produce chilometri orari fantasma.
-        if (pos.coords.accuracy != null && pos.coords.accuracy > 25) return;
-        let kmh: number | null = pos.coords.speed !== null ? pos.coords.speed * 3.6 : null;
-        if (kmh === null && posPrecRef.current) {
-          const dt = (t - posPrecRef.current.t) / 1000;
-          if (dt > 0.5) {
-            const dLat = (pos.coords.latitude - posPrecRef.current.lat) * 111_320;
-            const dLon = (pos.coords.longitude - posPrecRef.current.lon) * 111_320 *
-              Math.cos((pos.coords.latitude * Math.PI) / 180);
-            kmh = (Math.hypot(dLat, dLon) / dt) * 3.6;
-          }
-        }
-        posPrecRef.current = { lat: pos.coords.latitude, lon: pos.coords.longitude, t };
-        if (kmh === null || !Number.isFinite(kmh) || kmh > 250) return;
-        // Sotto i 3 km/h il GPS da fermo produce rumore, non velocità
-        if (kmh < 3) kmh = 0;
-        gpsRef.current = { kmh, quando: Date.now() };
-        if (kmh >= SOGLIA_VIAGGIO_KMH) ultimoMotoRef.current = Date.now();
+        lavoraPosizione(pos);
       },
       () => setGpsStato('negato'),
       { enableHighAccuracy: true, maximumAge: 2000, timeout: 8000 }
@@ -230,9 +311,17 @@ export default function Registratore({
   };
 
   const fermaGps = () => {
+    gpsGenerazioneRef.current++;
     if (gpsWatchRef.current !== null) {
       navigator.geolocation?.clearWatch(gpsWatchRef.current);
       gpsWatchRef.current = null;
+    }
+    if (gpsPluginIdRef.current !== null) {
+      const id = gpsPluginIdRef.current;
+      gpsPluginIdRef.current = null;
+      import('@capacitor/geolocation')
+        .then(({ Geolocation }) => Geolocation.clearWatch({ id }))
+        .catch(() => {});
     }
     gpsRef.current = null;
     posPrecRef.current = null;
@@ -268,7 +357,10 @@ export default function Registratore({
     if (!canale || attivoRef.current) return;
     if (cicloVivoRef.current) {
       // Il ciclo precedente sta ancora chiudendo il suo ultimo giro (fino a
-      // 25 s di giro lento): partire ora metterebbe due scrittori sul filo
+      // 25 s di giro lento): partire ora metterebbe due scrittori sul filo.
+      // L'auto-avvio non si consuma: quando il finally del vecchio ciclo
+      // libererà il mutex, il cambio di occupazione farà riprovare.
+      autoAvviatoRef.current = false;
       setMessaggio('Attendo la chiusura del giro precedente…');
       return;
     }
@@ -280,6 +372,7 @@ export default function Registratore({
         ? ultimaSessioneRef.current.sid
         : null;
     idSessioneRef.current = ripresa ?? crypto.randomUUID();
+    canaleDelCicloRef.current = canale;
     contestoRef.current = 'libero';
     setAttivo(true);
     attivoRef.current = true;
@@ -289,6 +382,20 @@ export default function Registratore({
     // congela la webview e la registrazione muore in silenzio. L'esito si
     // DICHIARA: il 19 agosto sono andati persi 24 minuti di viaggio perché il
     // servizio non era partito e nessuno aveva modo di saperlo.
+    // Il battito prima del servizio: appena il servizio parte, i colpi
+    // arrivano e il ciclo ha il suo metronomo anche a schermo spento
+    if (nativo() && !fermaBattitoRef.current) {
+      suBattitoNativo(colpoDiBattito).then(stop => {
+        if (!stop) return;
+        // Il remover arriva da una Promise: se nel varco la registrazione è
+        // già morta, il listener appena nato si stacca subito
+        if (!attivoRef.current && !cicloVivoRef.current) {
+          stop();
+          return;
+        }
+        fermaBattitoRef.current = stop;
+      });
+    }
     presidioNativoAvvia().then(e => {
       if (e.stato === 'fallito') {
         setPresidioNativo(`servizio in primo piano NON attivo: ${e.motivo}`);
@@ -397,7 +504,7 @@ export default function Registratore({
           if (bufferRef.current.length >= CAMPIONI_PER_INVIO) svuotaSenzaAttesa();
 
           const trascorso = Date.now() - inizio;
-          await new Promise(r => setTimeout(r, Math.max(0, INTERVALLO_VIAGGIO_MS - trascorso)));
+          await dormi(Math.max(0, INTERVALLO_VIAGGIO_MS - trascorso));
           continue;
         }
 
@@ -438,7 +545,7 @@ export default function Registratore({
         }
 
           const trascorso = Date.now() - inizio;
-          await new Promise(r => setTimeout(r, Math.max(0, INTERVALLO_MS - trascorso)));
+          await dormi(Math.max(0, INTERVALLO_MS - trascorso));
         }
       } finally {
         // Uscita dal ciclo — anche per eccezione: mai lasciare l'header sul
@@ -448,6 +555,14 @@ export default function Registratore({
         if (headerSuBECM) {
           await ripristinaStandard(canale.invia).catch(() => {});
         }
+        // Anche metronomo e servizio si spengono QUI, all'uscita vera: se li
+        // strappasse ferma() a un ciclo in volo coi timer congelati, la dormi
+        // pendente non avrebbe più nessuna via di risveglio — deadlock, mutex
+        // mai rilasciato, riavvio impossibile (rilievo della revisione)
+        canaleDelCicloRef.current = null;
+        fermaBattitoRef.current?.();
+        fermaBattitoRef.current = null;
+        presidioNativoFerma();
         cicloVivoRef.current = false;
         occupaCanale(null);
       }
@@ -465,9 +580,19 @@ export default function Registratore({
     sessioneRef.current++;
     setAttivo(false);
     setRegime('sosta');
-    // Il mutex lo rilascia l'uscita vera del ciclo (che può avere ancora
-    // secondi di comandi in volo); qui solo quando il ciclo non gira già più
-    if (!cicloVivoRef.current) occupaCanale(null);
+    // La dormi pendente si sveglia SUBITO: il ciclo deve vedere vivo()==false
+    // e uscire dal suo finally — coi timer congelati non c'è altra sveglia
+    const attesa = attesaRef.current;
+    attesaRef.current = null;
+    attesa?.risolvi();
+    // Mutex, metronomo e servizio li spegne l'uscita vera del ciclo (che può
+    // avere ancora secondi di comandi in volo); qui solo se il ciclo non gira
+    if (!cicloVivoRef.current) {
+      occupaCanale(null);
+      fermaBattitoRef.current?.();
+      fermaBattitoRef.current = null;
+      presidioNativoFerma();
+    }
     fermaGps();
     // La memoria per la ripresa: SOLO sulla caduta del canale — è per lei che
     // esiste. Un auto-stop o un Ferma voluto chiudono la guida: la prossima
@@ -477,7 +602,6 @@ export default function Registratore({
     } else {
       ultimaSessioneRef.current = null;
     }
-    presidioNativoFerma();
     await svuotaTutto();
     wakeLockRef.current?.release().catch(() => {});
     wakeLockRef.current = null;
@@ -529,6 +653,8 @@ export default function Registratore({
     // Lo smontaggio è la gemella di ferma(): senza queste due, nel guscio il
     // foreground service resterebbe acceso (wake lock fino a 12 ore) e fino
     // a 14 campioni già contati come "letti" morirebbero in RAM
+    fermaBattitoRef.current?.();
+    fermaBattitoRef.current = null;
     presidioNativoFerma();
     void svuotaTuttoRef.current();
 

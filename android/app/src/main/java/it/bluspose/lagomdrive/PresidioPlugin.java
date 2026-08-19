@@ -7,6 +7,8 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
 
@@ -33,6 +35,37 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 public class PresidioPlugin extends Plugin {
 
     private static final int CODICE_NOTIFICHE = 4711;
+    private static final long BATTITO_MS = 1000;
+
+    /**
+     * Il battito del presidio: un tick al secondo dal lato nativo, consegnato
+     * alla webview via bridge. A schermo spento Chromium congela i TIMER
+     * JavaScript della pagina nascosta anche col servizio in primo piano vivo
+     * (visto sul campo: buchi di 10 minuti con servizio attivo) — ma
+     * l'esecuzione di JS iniettato dal nativo continua. Il ciclo di lettura
+     * cammina su questo battito, non su setTimeout.
+     */
+    private final Handler battito = new Handler(Looper.getMainLooper());
+    private boolean battitoAttivo = false;
+    private final Runnable colpo = new Runnable() {
+        @Override
+        public void run() {
+            if (!battitoAttivo) return;
+            notifyListeners("battito", new JSObject());
+            battito.postDelayed(this, BATTITO_MS);
+        }
+    };
+
+    private void avviaBattito() {
+        if (battitoAttivo) return;
+        battitoAttivo = true;
+        battito.postDelayed(colpo, BATTITO_MS);
+    }
+
+    private void fermaBattito() {
+        battitoAttivo = false;
+        battito.removeCallbacks(colpo);
+    }
 
     /** Il permesso notifiche: su Android 13+ è negato finché non lo si chiede,
      *  e senza di lui la notifica del servizio non si vede — l'utente non ha
@@ -64,6 +97,7 @@ public class PresidioPlugin extends Plugin {
             call.reject("Servizio in primo piano non avviato: " + e.getMessage(), e);
             return;
         }
+        avviaBattito();
         JSObject esito = new JSObject();
         esito.put("attivo", inEsecuzione());
         esito.put("notifiche", notifichePermesse());
@@ -73,8 +107,15 @@ public class PresidioPlugin extends Plugin {
 
     @PluginMethod
     public void ferma(PluginCall call) {
+        fermaBattito();
         getContext().stopService(new Intent(getContext(), PresidioService.class));
         call.resolve();
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        fermaBattito();
+        super.handleOnDestroy();
     }
 
     /** Lo stato vero, per la UI: il servizio gira davvero? */
