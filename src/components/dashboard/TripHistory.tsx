@@ -10,6 +10,8 @@ interface Trip {
   startedAt: string;
   endedAt: string | null;
   distanceKm: number | null;
+  startOdometer: number | null;
+  endOdometer: number | null;
   startBattery: number;
   endBattery: number | null;
   energyUsedKwh: number | null;
@@ -30,8 +32,14 @@ interface Trip {
     powerCoverage: number | null;
     sessionId: string | null;
   } | null;
-  // Quanti ritagli cloud compone questa card (1 = viaggio normale)
+  // Il marchio della guida: i ritagli di una stessa strada lo condividono.
+  // Lo calcola il server (viaggi-fusione), che ha i campioni per misurare la
+  // sosta vera alla giunzione.
+  guidaId?: string;
+  // Quanti ritagli cloud compone questa card (1 = viaggio normale) e su quale
+  // prova sono stati ricomposti
   ritagli?: number;
+  fusionePer?: 'sessione' | 'odometro';
 }
 
 // Il profilo di potenza servito da /api/obd/profilo: secchi uniformi sulla
@@ -43,23 +51,22 @@ interface Profilo {
 }
 
 /**
- * La ricomposizione (bussola par. 5.2): l'odometro intero frammenta una guida
- * nei ritagli dei semafori, ma la sessione OBD sa che era una. Viaggi contigui
- * (meno di 3 minuti fra fine e inizio) con la STESSA sessione si fondono in
- * una card sola: km sommati, batteria dal primo all'ultimo, integrali sommati
- * — le finestre di aggancio si spartiscono i campioni, quindi la somma non
- * conta niente due volte. Il rilevatore non viene toccato: i ritagli restano
- * in tabella, è la presentazione che li ricompone.
+ * La ricomposizione (bussola par. 5.2): l'odometro frammenta una guida nei
+ * ritagli dei semafori — la sessione OBD sa che era una, e dove il dongle non
+ * c'era lo dice la sosta misurata alla giunzione. Il giudizio arriva dal
+ * server come `guidaId` (viaggi-fusione), che ha i campioni per misurarla;
+ * qui si sommano soltanto i pezzi che portano lo stesso marchio.
+ *
+ * Le finestre di aggancio si spartiscono i campioni, quindi la somma degli
+ * integrali non conta niente due volte. Il rilevatore non viene toccato: i
+ * ritagli restano in tabella, è la presentazione che li ricompone.
  */
-function ricomponi(viaggi: Trip[], codaTronca: boolean): Trip[] {
+function ricomponi(viaggi: Trip[], codaTronca: boolean, capacita: number): Trip[] {
   const out: Trip[] = [];
   let gruppo: Trip[] = [];
 
   const stessaGuida = (nuovo: Trip, prec: Trip) =>
-    nuovo.obd?.sessionId != null &&
-    nuovo.obd.sessionId === prec.obd?.sessionId &&
-    prec.endedAt !== null &&
-    Math.abs(Date.parse(nuovo.startedAt) - Date.parse(prec.endedAt)) < 3 * 60 * 1000;
+    nuovo.guidaId != null && nuovo.guidaId === prec.guidaId;
 
   const chiudi = () => {
     if (!gruppo.length) return;
@@ -80,30 +87,60 @@ function ricomponi(viaggi: Trip[], codaTronca: boolean): Trip[] {
       return Math.max(0, Date.parse(b) - Date.parse(a));
     };
     const durataTot = gruppo.reduce((s, v) => s + durataMs(v), 0);
+    // Un ritaglio SENZA campioni pesa nel denominatore con copertura zero:
+    // è tempo di guida che nessuno ha misurato, e sparire dal conto lo
+    // trasformerebbe in tempo coperto. Su una guida strumentata solo in coda
+    // la copertura deve crollare — è il badge "misurato" a dipenderne.
     const pesata = (f: (v: Trip) => number | null | undefined): number | null => {
       if (durataTot === 0) return null;
       let s = 0;
+      let almenoUno = false;
       for (const v of gruppo) {
         const x = f(v);
-        if (x == null) return null;
+        if (x == null) continue;
+        almenoUno = true;
         s += x * durataMs(v);
       }
-      return s / durataTot;
+      return almenoUno ? s / durataTot : null;
     };
     const potPesata = pesata(v => v.obd?.powerCoverage);
-    // Il dedotto della guida intera, con le stesse soglie di onesta' del
-    // rilevatore: sotto, meglio nessun valore che uno inventato
     const kmFusi = somma(v => v.distanceKm);
-    const energiaFusa = somma(v => v.energyUsedKwh);
+    // Il dedotto della guida si prende dal ΔSoC COMPLESSIVO, non sommando i
+    // ritagli: il rilevatore tronca a zero il calo di ognuno, e la somma dei
+    // troncati sovrastima ogni volta che un pezzo ha recuperato energia.
+    const socInizio = vecchio.startBattery;
+    const socFine = nuovo.endBattery;
+    // Se il rilevatore ha rifiutato l'energia anche a UN SOLO ritaglio — una
+    // ricarica dentro la finestra, un buco che l'avrebbe nascosta — il rifiuto
+    // vale per la guida intera: leggere solo i due estremi la resusciterebbe
+    // scavalcando il giudizio di chi i campioni li aveva davanti.
+    const batteriaAttendibile = gruppo.every(v => v.energyUsedKwh != null);
+    const energiaFusa =
+      batteriaAttendibile && socFine != null
+        ? Math.max(0, ((socInizio - socFine) / 100) * capacita)
+        : null;
+    // Le soglie di onestà del rilevatore valgono sulla guida intera: due
+    // ritagli da 5 km che nessuno dei due poteva dichiarare non diventano un
+    // consumo credibile solo perché sommati — serve anche il ΔSoC.
     const dedottoFuso =
-      kmFusi != null && kmFusi >= 10 && energiaFusa != null && energiaFusa >= 1.3
+      kmFusi != null &&
+      kmFusi >= 10 &&
+      socFine != null &&
+      socInizio - socFine >= 2 &&
+      energiaFusa != null &&
+      energiaFusa >= 1.3
         ? (energiaFusa / kmFusi) * 100
         : null;
+    // Una guida ricomposta senza dongle non ha campioni: la riga OBD deve
+    // restare assente, non nascere vuota.
+    const conObd = gruppo.some(v => v.obd != null);
     out.push({
       id: gruppo.map(v => v.id).join('+'),
       startedAt: vecchio.startedAt,
       endedAt: nuovo.endedAt,
       distanceKm: kmFusi,
+      startOdometer: vecchio.startOdometer,
+      endOdometer: nuovo.endOdometer,
       startBattery: vecchio.startBattery,
       endBattery: nuovo.endBattery,
       energyUsedKwh: energiaFusa,
@@ -111,22 +148,28 @@ function ricomponi(viaggi: Trip[], codaTronca: boolean): Trip[] {
       avgConsumption: dedottoFuso,
       volvoAvgConsumption: null,
       ritagli: gruppo.length,
-      obd: {
-        coverage: pesata(v => v.obd?.coverage) ?? Math.min(...gruppo.map(v => v.obd!.coverage)),
-        sampleCount: gruppo.reduce((s, v) => s + (v.obd?.sampleCount ?? 0), 0),
-        distanceObdKm: somma(v => v.obd?.distanceObdKm),
-        maxSpeedKmh: gruppo.some(v => v.obd?.maxSpeedKmh != null)
-          ? Math.max(...gruppo.map(v => v.obd?.maxSpeedKmh ?? 0))
-          : null,
-        socStartObd: vecchio.obd?.socStartObd ?? null,
-        socEndObd: nuovo.obd?.socEndObd ?? null,
-        movingStart: vecchio.obd?.movingStart ?? null,
-        movingEnd: nuovo.obd?.movingEnd ?? null,
-        energyGrossKwh: somma(v => v.obd?.energyGrossKwh),
-        energyRegenGrossKwh: somma(v => v.obd?.energyRegenGrossKwh),
-        powerCoverage: potPesata,
-        sessionId: nuovo.obd?.sessionId ?? null,
-      },
+      guidaId: nuovo.guidaId,
+      // La prova la dichiara la sessione, quando c'è: altrimenti è la sosta
+      // misurata alla giunzione ad aver ricucito i pezzi
+      fusionePer: gruppo.some(v => v.obd?.sessionId != null) ? 'sessione' : 'odometro',
+      obd: conObd
+        ? {
+            coverage: pesata(v => v.obd?.coverage) ?? 0,
+            sampleCount: gruppo.reduce((s, v) => s + (v.obd?.sampleCount ?? 0), 0),
+            distanceObdKm: somma(v => v.obd?.distanceObdKm),
+            maxSpeedKmh: gruppo.some(v => v.obd?.maxSpeedKmh != null)
+              ? Math.max(...gruppo.map(v => v.obd?.maxSpeedKmh ?? 0))
+              : null,
+            socStartObd: vecchio.obd?.socStartObd ?? null,
+            socEndObd: nuovo.obd?.socEndObd ?? null,
+            movingStart: vecchio.obd?.movingStart ?? null,
+            movingEnd: nuovo.obd?.movingEnd ?? null,
+            energyGrossKwh: somma(v => v.obd?.energyGrossKwh),
+            energyRegenGrossKwh: somma(v => v.obd?.energyRegenGrossKwh),
+            powerCoverage: potPesata,
+            sessionId: nuovo.obd?.sessionId ?? null,
+          }
+        : null,
     });
     gruppo = [];
   };
@@ -422,7 +465,8 @@ function CardMisurata({
           </p>
           {trip.ritagli != null && trip.ritagli > 1 && (
             <p className="text-xs text-teal-300/80 mt-0.5">
-              {trip.ritagli} ritagli ricomposti · sessione OBD
+              {trip.ritagli} ritagli ricomposti ·{' '}
+              {trip.fusionePer === 'odometro' ? 'sosta misurata sotto i 5 min' : 'sessione OBD'}
             </p>
           )}
         </div>
@@ -511,6 +555,12 @@ function CardCompatta({ trip }: { trip: Trip }) {
           {socFine != null &&
             ` · ${Math.round(socInizio)} → ${Math.round(socFine)}%`}
         </p>
+        {trip.ritagli != null && trip.ritagli > 1 && (
+          <p className="text-xs text-teal-300/80 mt-0.5">
+            {trip.ritagli} ritagli ricomposti ·{' '}
+            {trip.fusionePer === 'odometro' ? 'sosta misurata sotto i 5 min' : 'sessione OBD'}
+          </p>
+        )}
         {obdParziale && (
           <p className="text-xs text-gray-500 mt-0.5">
             OBD parziale · copertura {Math.floor((trip.obd!.coverage ?? 0) * 100)}%
@@ -533,12 +583,18 @@ function CardCompatta({ trip }: { trip: Trip }) {
 
 export default function TripHistory({ onSalute }: { onSalute?: () => void }) {
   const [trips, setTrips] = useState<Trip[]>([]);
+  // La capacità serve al dedotto della guida fusa: arriva dalle impostazioni
+  // insieme ai viaggi, così card e server non possono divergere
+  const [capacita, setCapacita] = useState(67);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     fetch('/api/trips')
       .then(r => r.json())
-      .then(setTrips)
+      .then(d => {
+        if (Array.isArray(d?.viaggi)) setTrips(d.viaggi);
+        if (typeof d?.capacita === 'number') setCapacita(d.capacita);
+      })
       .catch(console.error)
       .finally(() => setIsLoading(false));
   }, []);
@@ -561,7 +617,7 @@ export default function TripHistory({ onSalute }: { onSalute?: () => void }) {
     );
   }
 
-  const ricomposti = ricomponi(trips, trips.length >= 50);
+  const ricomposti = ricomponi(trips, trips.length >= 50, capacita);
 
   // Il confronto del numero grande: la mediana degli ALTRI viaggi misurati in
   // lista. Mediana e non media: con pochi punti, un'andata in salita non deve
