@@ -96,8 +96,14 @@ export default function Registratore({
   // comandi scaduti: il ciclo cammina anche coi timer morti.
   const attesaRef = useRef<{ risolvi: () => void; scadeA: number } | null>(null);
   const fermaBattitoRef = useRef<(() => void) | null>(null);
-  const canaleVivoRef = useRef<Canale | null>(null);
+  // Il canale DEL CICLO in volo, non quello del prop: dopo una caduta il prop
+  // è già null (o è il canale nuovo) mentre il vecchio giro ha ancora un
+  // comando da far spirare — il battito deve raggiungere QUEL protocollo
+  const canaleDelCicloRef = useRef<Canale | null>(null);
   const gpsPluginIdRef = useRef<string | null>(null);
+  // La generazione del GPS: l'id del watch nativo arriva da una Promise, e un
+  // fermaGps nel varco deve poter uccidere il watch appena nato
+  const gpsGenerazioneRef = useRef(0);
   const [regime, setRegime] = useState<'sosta' | 'viaggio'>('sosta');
   const [gpsStato, setGpsStato] = useState<'ok' | 'negato' | 'assente' | null>(null);
   // Il guasto del servizio nativo, quando c'è: non deve restare muto
@@ -222,7 +228,7 @@ export default function Registratore({
   // Un colpo del battito nativo: sveglia l'attesa matura e fa spirare i
   // comandi rimasti senza risposta (o la coda half-duplex resterebbe muta)
   const colpoDiBattito = useCallback(() => {
-    canaleVivoRef.current?.battito();
+    canaleDelCicloRef.current?.battito();
     const a = attesaRef.current;
     if (a && Date.now() >= a.scadeA) {
       attesaRef.current = null;
@@ -271,18 +277,25 @@ export default function Registratore({
       // il GPS non ha mai superato i 5 km/h. Il plugin nativo consegna i fix
       // via bridge, che vive anche a pagina nascosta; il servizio in primo
       // piano ha il tipo location proprio per questo.
+      const gen = gpsGenerazioneRef.current;
       import('@capacitor/geolocation')
-        .then(({ Geolocation }) =>
-          Geolocation.watchPosition(
+        .then(async ({ Geolocation }) => {
+          const id = await Geolocation.watchPosition(
             { enableHighAccuracy: true, timeout: 8000 },
             (pos, err) => {
               if (err || !pos) { setGpsStato('negato'); return; }
               setGpsStato('ok');
               lavoraPosizione(pos);
             }
-          )
-        )
-        .then(id => { gpsPluginIdRef.current = id; })
+          );
+          if (gpsGenerazioneRef.current !== gen) {
+            // fermaGps è passato nel varco della Promise: il watch appena
+            // nato non ha più un padrone e muore subito
+            Geolocation.clearWatch({ id }).catch(() => {});
+            return;
+          }
+          gpsPluginIdRef.current = id;
+        })
         .catch(() => setGpsStato('negato'));
       return;
     }
@@ -298,6 +311,7 @@ export default function Registratore({
   };
 
   const fermaGps = () => {
+    gpsGenerazioneRef.current++;
     if (gpsWatchRef.current !== null) {
       navigator.geolocation?.clearWatch(gpsWatchRef.current);
       gpsWatchRef.current = null;
@@ -343,7 +357,10 @@ export default function Registratore({
     if (!canale || attivoRef.current) return;
     if (cicloVivoRef.current) {
       // Il ciclo precedente sta ancora chiudendo il suo ultimo giro (fino a
-      // 25 s di giro lento): partire ora metterebbe due scrittori sul filo
+      // 25 s di giro lento): partire ora metterebbe due scrittori sul filo.
+      // L'auto-avvio non si consuma: quando il finally del vecchio ciclo
+      // libererà il mutex, il cambio di occupazione farà riprovare.
+      autoAvviatoRef.current = false;
       setMessaggio('Attendo la chiusura del giro precedente…');
       return;
     }
@@ -355,6 +372,7 @@ export default function Registratore({
         ? ultimaSessioneRef.current.sid
         : null;
     idSessioneRef.current = ripresa ?? crypto.randomUUID();
+    canaleDelCicloRef.current = canale;
     contestoRef.current = 'libero';
     setAttivo(true);
     attivoRef.current = true;
@@ -368,6 +386,13 @@ export default function Registratore({
     // arrivano e il ciclo ha il suo metronomo anche a schermo spento
     if (nativo() && !fermaBattitoRef.current) {
       suBattitoNativo(colpoDiBattito).then(stop => {
+        if (!stop) return;
+        // Il remover arriva da una Promise: se nel varco la registrazione è
+        // già morta, il listener appena nato si stacca subito
+        if (!attivoRef.current && !cicloVivoRef.current) {
+          stop();
+          return;
+        }
         fermaBattitoRef.current = stop;
       });
     }
@@ -530,6 +555,14 @@ export default function Registratore({
         if (headerSuBECM) {
           await ripristinaStandard(canale.invia).catch(() => {});
         }
+        // Anche metronomo e servizio si spengono QUI, all'uscita vera: se li
+        // strappasse ferma() a un ciclo in volo coi timer congelati, la dormi
+        // pendente non avrebbe più nessuna via di risveglio — deadlock, mutex
+        // mai rilasciato, riavvio impossibile (rilievo della revisione)
+        canaleDelCicloRef.current = null;
+        fermaBattitoRef.current?.();
+        fermaBattitoRef.current = null;
+        presidioNativoFerma();
         cicloVivoRef.current = false;
         occupaCanale(null);
       }
@@ -547,9 +580,19 @@ export default function Registratore({
     sessioneRef.current++;
     setAttivo(false);
     setRegime('sosta');
-    // Il mutex lo rilascia l'uscita vera del ciclo (che può avere ancora
-    // secondi di comandi in volo); qui solo quando il ciclo non gira già più
-    if (!cicloVivoRef.current) occupaCanale(null);
+    // La dormi pendente si sveglia SUBITO: il ciclo deve vedere vivo()==false
+    // e uscire dal suo finally — coi timer congelati non c'è altra sveglia
+    const attesa = attesaRef.current;
+    attesaRef.current = null;
+    attesa?.risolvi();
+    // Mutex, metronomo e servizio li spegne l'uscita vera del ciclo (che può
+    // avere ancora secondi di comandi in volo); qui solo se il ciclo non gira
+    if (!cicloVivoRef.current) {
+      occupaCanale(null);
+      fermaBattitoRef.current?.();
+      fermaBattitoRef.current = null;
+      presidioNativoFerma();
+    }
     fermaGps();
     // La memoria per la ripresa: SOLO sulla caduta del canale — è per lei che
     // esiste. Un auto-stop o un Ferma voluto chiudono la guida: la prossima
@@ -559,9 +602,6 @@ export default function Registratore({
     } else {
       ultimaSessioneRef.current = null;
     }
-    fermaBattitoRef.current?.();
-    fermaBattitoRef.current = null;
-    presidioNativoFerma();
     await svuotaTutto();
     wakeLockRef.current?.release().catch(() => {});
     wakeLockRef.current = null;
@@ -579,10 +619,6 @@ export default function Registratore({
   useEffect(() => {
     presidioVivoRef.current = presidio;
   }, [presidio]);
-
-  useEffect(() => {
-    canaleVivoRef.current = canale;
-  }, [canale]);
 
   // L'avvio automatico del presidio: UNA volta per canale, consumato solo
   // quando l'avvio parte davvero. Così "Ferma registrazione" resta fermo

@@ -74,11 +74,23 @@ export function creaProtocollo(scrivi: (dati: Uint8Array) => Promise<void>) {
   // senza risposta bloccherebbe la coda half-duplex per sempre. spira() è
   // idempotente e viene chiamata sia dal timer (quando vive) sia dal battito
   // nativo del presidio (quando il timer è congelato).
+  // La lapide del comando spirato: la sua risposta può ancora arrivare, e
+  // senza correlazione fra dati e comando finirebbe attribuita al comando
+  // SUCCESSIVO — col retry dello stesso DID passerebbe ogni validazione:
+  // numeri veri ma vecchi di sei secondi, spacciati per l'istante nuovo.
+  // La prima risposta completa entro una finestra di timeout dallo spiro si
+  // butta; se non arriva, la lapide scade da sola. Trade-off dichiarato: se
+  // il comando morto non risponde MAI (dongle vivo che tace su un solo
+  // comando — mai osservato: l'ELM327 il prompt lo emette sempre), la lapide
+  // mangerebbe la risposta del retry.
+  let lapide = 0;
+
   const spira = () => {
     if (!attesa || Date.now() < attesa.scadeA) return;
     const corrente = attesa;
     attesa = null;
     buffer = '';
+    lapide = Date.now() + TIMEOUT_MS;
     corrente.rifiuta(
       new Error(`Nessuna risposta a "${corrente.comando}" entro ${TIMEOUT_MS} ms`)
     );
@@ -88,9 +100,17 @@ export function creaProtocollo(scrivi: (dati: Uint8Array) => Promise<void>) {
     // La risposta è completa quando arriva il prompt, non dopo un tempo fisso:
     // le letture lente arrivano spezzate in più notifiche.
     buffer += decoder.decode(dati);
-    if (buffer.includes(PROMPT) && attesa) {
-      const testo = buffer.slice(0, buffer.indexOf(PROMPT));
-      buffer = '';
+    if (!buffer.includes(PROMPT)) return;
+    const testo = buffer.slice(0, buffer.indexOf(PROMPT));
+    buffer = '';
+    // L'orfana del comando spirato si raccoglie e si butta: la linea torna
+    // pulita e la risposta VERA del comando in corso arriverà dopo
+    if (lapide) {
+      const orfana = Date.now() < lapide;
+      lapide = 0;
+      if (orfana) return;
+    }
+    if (attesa) {
       const corrente = attesa;
       attesa = null;
       corrente.risolvi(testo.trim());
