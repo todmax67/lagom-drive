@@ -32,6 +32,9 @@ export type Canale = {
   disconnetti: () => void;
   // Il presidio ha bisogno di saperlo: la riconnessione parte da qui
   suDisconnessione: (cb: () => void) => void;
+  // Il battito nativo chiama qui: fa spirare i comandi scaduti quando i
+  // timer della pagina sono congelati (schermo spento)
+  battito: () => void;
 };
 
 export type ServizioScoperto = {
@@ -58,7 +61,28 @@ export function creaProtocollo(scrivi: (dati: Uint8Array) => Promise<void>) {
   // sonda che manda diciassette richieste in fila, un solo timeout basterebbe
   // a disallineare tutto il resto e ad attribuire ogni valore al DID sbagliato.
   let generazione = 0;
-  let attesa: { gen: number; risolvi: (testo: string) => void } | null = null;
+  let attesa: {
+    gen: number;
+    comando: string;
+    scadeA: number;
+    risolvi: (testo: string) => void;
+    rifiuta: (errore: Error) => void;
+  } | null = null;
+
+  // Il giudizio di scadenza sta sull'OROLOGIO, non sul timer: a schermo
+  // spento Chromium congela i setTimeout della pagina nascosta, e un comando
+  // senza risposta bloccherebbe la coda half-duplex per sempre. spira() è
+  // idempotente e viene chiamata sia dal timer (quando vive) sia dal battito
+  // nativo del presidio (quando il timer è congelato).
+  const spira = () => {
+    if (!attesa || Date.now() < attesa.scadeA) return;
+    const corrente = attesa;
+    attesa = null;
+    buffer = '';
+    corrente.rifiuta(
+      new Error(`Nessuna risposta a "${corrente.comando}" entro ${TIMEOUT_MS} ms`)
+    );
+  };
 
   const consegna = (dati: AllowSharedBufferSource) => {
     // La risposta è completa quando arriva il prompt, non dopo un tempo fisso:
@@ -78,24 +102,19 @@ export function creaProtocollo(scrivi: (dati: Uint8Array) => Promise<void>) {
       const gen = ++generazione;
       buffer = '';
 
-      const scadenza = setTimeout(() => {
-        // Si abbandona l'attesa E si svuota il buffer: quel che arriverà dopo
-        // appartiene a un comando che nessuno sta più aspettando.
-        if (attesa?.gen === gen) attesa = null;
-        buffer = '';
-        reject(new Error(`Nessuna risposta a "${comando}" entro ${TIMEOUT_MS} ms`));
-      }, TIMEOUT_MS);
-
       attesa = {
         gen,
-        risolvi: testo => {
-          clearTimeout(scadenza);
-          resolve(testo);
-        },
+        comando,
+        scadeA: Date.now() + TIMEOUT_MS,
+        risolvi: resolve,
+        rifiuta: reject,
       };
 
+      // Il timer resta come guardiano quando i timer vivono; spira() giudica
+      // sull'orologio, quindi un doppio richiamo è innocuo
+      setTimeout(spira, TIMEOUT_MS + 50);
+
       scrivi(encoder.encode(comando + '\r')).catch(err => {
-        clearTimeout(scadenza);
         if (attesa?.gen === gen) attesa = null;
         reject(err);
       });
@@ -113,7 +132,7 @@ export function creaProtocollo(scrivi: (dati: Uint8Array) => Promise<void>) {
     return esito;
   };
 
-  return { invia, consegna };
+  return { invia, consegna, spira };
 }
 
 /**
@@ -233,6 +252,7 @@ async function apriDispositivo(
       servizioUsato,
       disconnetti: () => device.gatt?.disconnect(),
       suDisconnessione: cb => ascoltatori.add(cb),
+      battito: protocollo.spira,
     },
     servizi,
   };

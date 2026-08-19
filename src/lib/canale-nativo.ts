@@ -92,6 +92,24 @@ export async function presidioNativoStato(): Promise<
   }
 }
 
+/**
+ * Il battito del presidio: un tick al secondo dal nativo, vivo anche a
+ * schermo spento. È il metronomo del ciclo di lettura quando i timer della
+ * pagina sono congelati. null sul web puro: lì i timer bastano.
+ */
+export async function suBattitoNativo(cb: () => void): Promise<(() => void) | null> {
+  const plugin = (window as unknown as FinestraCapacitor).Capacitor?.Plugins?.Presidio as
+    | { addListener?: (evento: string, cb: () => void) => Promise<{ remove: () => void }> }
+    | undefined;
+  if (!plugin?.addListener) return null;
+  try {
+    const h = await plugin.addListener('battito', cb);
+    return () => h.remove();
+  } catch {
+    return null;
+  }
+}
+
 /** Apre il dialogo di sistema per togliere l'app dall'ottimizzazione batteria */
 export async function presidioApriBatteria(): Promise<void> {
   const plugin = (window as unknown as FinestraCapacitor).Capacitor?.Plugins?.Presidio;
@@ -211,6 +229,7 @@ export async function collegaNativo(
       servizioUsato,
       disconnetti: () => { BleClient.disconnect(deviceId!).catch(() => {}); },
       suDisconnessione: cb => ascoltatori.add(cb),
+      battito: protocollo.spira,
     },
     servizi,
   };
