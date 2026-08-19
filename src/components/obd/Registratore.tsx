@@ -91,6 +91,8 @@ export default function Registratore({
   const invioInCorsoRef = useRef(false);
   const [regime, setRegime] = useState<'sosta' | 'viaggio'>('sosta');
   const [gpsStato, setGpsStato] = useState<'ok' | 'negato' | 'assente' | null>(null);
+  // Il guasto del servizio nativo, quando c'è: non deve restare muto
+  const [presidioNativo, setPresidioNativo] = useState<string | null>(null);
 
   const creaDispositivo = async () => {
     setMessaggio(null);
@@ -283,9 +285,23 @@ export default function Registratore({
     attivoRef.current = true;
     occupaCanale('registratore');
     avviaGps();
-    // Nel guscio: foreground service, la registrazione vive a schermo spento.
-    // Sul web è un no-op.
-    presidioNativoAvvia();
+    // Nel guscio: foreground service, senza il quale a schermo spento Android
+    // congela la webview e la registrazione muore in silenzio. L'esito si
+    // DICHIARA: il 19 agosto sono andati persi 24 minuti di viaggio perché il
+    // servizio non era partito e nessuno aveva modo di saperlo.
+    presidioNativoAvvia().then(e => {
+      if (e.stato === 'fallito') {
+        setPresidioNativo(`servizio in primo piano NON attivo: ${e.motivo}`);
+      } else if (e.stato === 'attivo') {
+        setPresidioNativo(
+          e.notifiche
+            ? null
+            : 'servizio attivo ma senza permesso notifiche: concedilo, o Android può fermarlo'
+        );
+      } else {
+        setPresidioNativo(null);
+      }
+    });
 
     // Senza schermo acceso il browser sospende il ciclo e la registrazione si ferma
     try {
@@ -569,6 +585,13 @@ export default function Registratore({
         {attivo ? <Square size={16} /> : <Play size={16} />}
         {attivo ? 'Ferma registrazione' : 'Avvia registrazione'}
       </button>
+
+      {attivo && presidioNativo && (
+        <p className="text-xs text-amber-300/90">
+          {presidioNativo}. A schermo spento la raccolta si fermerà: tieni
+          l&apos;app in primo piano finché non è risolto.
+        </p>
+      )}
 
       {attivo && (gpsStato === 'negato' || gpsStato === 'assente') && (
         <p className="text-xs text-gray-500">

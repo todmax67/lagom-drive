@@ -35,11 +35,36 @@ export function nativo(): boolean {
  * spento. Il plugin "Presidio" esiste solo nella build nativa: sul web ogni
  * chiamata è un no-op silenzioso.
  */
-export async function presidioNativoAvvia(): Promise<void> {
+export type EsitoPresidio =
+  | { stato: 'attivo'; notifiche: boolean }
+  | { stato: 'assente' } // sul web puro: non c'è servizio da avviare
+  | { stato: 'fallito'; motivo: string };
+
+/**
+ * Avvia il servizio e DICE com'è andata. La prima versione inghiottiva ogni
+ * errore: il servizio non partiva, la registrazione moriva a schermo spento e
+ * l'app non aveva niente da dire — 24 minuti persi sul campo il 19 agosto.
+ */
+export async function presidioNativoAvvia(): Promise<EsitoPresidio> {
+  const plugin = (window as unknown as FinestraCapacitor).Capacitor?.Plugins?.Presidio;
+  if (!plugin?.avvia) return { stato: 'assente' };
   try {
-    const plugin = (window as unknown as FinestraCapacitor).Capacitor?.Plugins?.Presidio;
-    if (plugin?.avvia) await plugin.avvia({});
-  } catch { /* il servizio è un aiuto, non un prerequisito */ }
+    // Il permesso notifiche prima: senza, la notifica del servizio non si vede
+    // e non c'è modo di sapere se la raccolta è viva
+    if (plugin.chiediPermessi) await plugin.chiediPermessi({});
+    const r = (await plugin.avvia({})) as unknown as {
+      attivo?: boolean;
+      notifiche?: boolean;
+    };
+    return r?.attivo
+      ? { stato: 'attivo', notifiche: r.notifiche !== false }
+      : { stato: 'fallito', motivo: 'il servizio non risulta in esecuzione' };
+  } catch (err) {
+    return {
+      stato: 'fallito',
+      motivo: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 export async function presidioNativoFerma(): Promise<void> {
