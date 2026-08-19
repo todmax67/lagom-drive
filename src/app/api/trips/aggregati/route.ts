@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { stessaGuida } from '@/lib/viaggi-fusione';
 
 /**
  * I viaggi aggregati per settimana, mese e anno (calendario Europe/Rome).
@@ -84,14 +85,45 @@ export async function GET() {
   const viaggi = await prisma.trip.findMany({
     where: { userId, isComplete: true },
     orderBy: { startedAt: 'asc' },
-    select: { startedAt: true, distanceKm: true, energyUsedKwh: true },
+    select: {
+      id: true,
+      startedAt: true,
+      endedAt: true,
+      startOdometer: true,
+      endOdometer: true,
+      distanceKm: true,
+      energyUsedKwh: true,
+    },
+  });
+
+  // Chi conta come GUIDA: i ritagli contigui valgono uno solo, con lo stesso
+  // giudizio della lista viaggi (viaggi-fusione). Km ed energia si sommano
+  // comunque per frammento — la fusione cambia solo il conteggio, e la guida
+  // finisce nel secchio del suo primo ritaglio.
+  const arricchimenti = await prisma.tripEnrichment
+    .findMany({
+      where: { tripId: { in: viaggi.map(v => v.id) } },
+      select: { tripId: true, sessionId: true },
+    })
+    .catch(() => [] as { tripId: string; sessionId: string | null }[]);
+  const sessionePer = new Map(arricchimenti.map(a => [a.tripId, a.sessionId]));
+  const fondibile = (v: (typeof viaggi)[number]) => ({
+    inizioMs: v.startedAt.getTime(),
+    fineMs: v.endedAt?.getTime() ?? null,
+    startOdometer: v.startOdometer,
+    endOdometer: v.endOdometer,
+    sessionId: sessionePer.get(v.id) ?? null,
   });
 
   const settimane = new Map<string, Secchio>();
   const mesi = new Map<string, Secchio>();
   const anni = new Map<string, Secchio>();
 
-  for (const v of viaggi) {
+  for (let i = 0; i < viaggi.length; i++) {
+    const v = viaggi[i];
+    // La lista è crescente: il precedente è il ritaglio più vecchio
+    const prosecuzione =
+      i > 0 && stessaGuida(fondibile(v), fondibile(viaggi[i - 1])) !== null;
     const giorno = giornoLocale(v.startedAt);
     const chiavi: [Map<string, Secchio>, string][] = [
       [settimane, giornoLocale(lunediDi(giorno))],
@@ -100,7 +132,7 @@ export async function GET() {
     ];
     for (const [mappa, chiave] of chiavi) {
       const s = mappa.get(chiave) ?? nuovoSecchio();
-      s.viaggi += 1;
+      if (!prosecuzione) s.viaggi += 1;
       if (v.distanceKm != null) s.km += v.distanceKm;
       if (v.energyUsedKwh != null) {
         s.kwh += v.energyUsedKwh;

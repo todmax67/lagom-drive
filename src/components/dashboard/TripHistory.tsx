@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { stessaGuida as giudicaGuida } from '@/lib/viaggi-fusione';
 
 // I nullable rispecchiano lo schema Prisma: i campi energetici mancano sui
 // viaggi ricostruiti dallo storico e su quelli troppo brevi per una stima
@@ -10,6 +11,8 @@ interface Trip {
   startedAt: string;
   endedAt: string | null;
   distanceKm: number | null;
+  startOdometer: number | null;
+  endOdometer: number | null;
   startBattery: number;
   endBattery: number | null;
   energyUsedKwh: number | null;
@@ -30,8 +33,10 @@ interface Trip {
     powerCoverage: number | null;
     sessionId: string | null;
   } | null;
-  // Quanti ritagli cloud compone questa card (1 = viaggio normale)
+  // Quanti ritagli cloud compone questa card (1 = viaggio normale) e su quale
+  // prova sono stati ricomposti
   ritagli?: number;
+  fusionePer?: 'sessione' | 'odometro';
 }
 
 // Il profilo di potenza servito da /api/obd/profilo: secchi uniformi sulla
@@ -54,12 +59,18 @@ interface Profilo {
 function ricomponi(viaggi: Trip[], codaTronca: boolean): Trip[] {
   const out: Trip[] = [];
   let gruppo: Trip[] = [];
+  let provaGruppo: 'sessione' | 'odometro' | null = null;
 
+  // Il giudizio vive in viaggi-fusione.ts, condiviso con gli aggregati
+  const fondibile = (t: Trip) => ({
+    inizioMs: Date.parse(t.startedAt),
+    fineMs: t.endedAt ? Date.parse(t.endedAt) : null,
+    startOdometer: t.startOdometer ?? null,
+    endOdometer: t.endOdometer ?? null,
+    sessionId: t.obd?.sessionId ?? null,
+  });
   const stessaGuida = (nuovo: Trip, prec: Trip) =>
-    nuovo.obd?.sessionId != null &&
-    nuovo.obd.sessionId === prec.obd?.sessionId &&
-    prec.endedAt !== null &&
-    Math.abs(Date.parse(nuovo.startedAt) - Date.parse(prec.endedAt)) < 3 * 60 * 1000;
+    giudicaGuida(fondibile(nuovo), fondibile(prec));
 
   const chiudi = () => {
     if (!gruppo.length) return;
@@ -99,11 +110,17 @@ function ricomponi(viaggi: Trip[], codaTronca: boolean): Trip[] {
       kmFusi != null && kmFusi >= 10 && energiaFusa != null && energiaFusa >= 1.3
         ? (energiaFusa / kmFusi) * 100
         : null;
+    // Una guida ricomposta dal solo odometro non ha campioni: la riga OBD
+    // deve restare assente, non nascere vuota — e il vecchio fallback sul
+    // minimo di copertura andava a leggere un obd che qui non esiste.
+    const conObd = gruppo.some(v => v.obd != null);
     out.push({
       id: gruppo.map(v => v.id).join('+'),
       startedAt: vecchio.startedAt,
       endedAt: nuovo.endedAt,
       distanceKm: kmFusi,
+      startOdometer: vecchio.startOdometer,
+      endOdometer: nuovo.endOdometer,
       startBattery: vecchio.startBattery,
       endBattery: nuovo.endBattery,
       energyUsedKwh: energiaFusa,
@@ -111,29 +128,39 @@ function ricomponi(viaggi: Trip[], codaTronca: boolean): Trip[] {
       avgConsumption: dedottoFuso,
       volvoAvgConsumption: null,
       ritagli: gruppo.length,
-      obd: {
-        coverage: pesata(v => v.obd?.coverage) ?? Math.min(...gruppo.map(v => v.obd!.coverage)),
-        sampleCount: gruppo.reduce((s, v) => s + (v.obd?.sampleCount ?? 0), 0),
-        distanceObdKm: somma(v => v.obd?.distanceObdKm),
-        maxSpeedKmh: gruppo.some(v => v.obd?.maxSpeedKmh != null)
-          ? Math.max(...gruppo.map(v => v.obd?.maxSpeedKmh ?? 0))
-          : null,
-        socStartObd: vecchio.obd?.socStartObd ?? null,
-        socEndObd: nuovo.obd?.socEndObd ?? null,
-        movingStart: vecchio.obd?.movingStart ?? null,
-        movingEnd: nuovo.obd?.movingEnd ?? null,
-        energyGrossKwh: somma(v => v.obd?.energyGrossKwh),
-        energyRegenGrossKwh: somma(v => v.obd?.energyRegenGrossKwh),
-        powerCoverage: potPesata,
-        sessionId: nuovo.obd?.sessionId ?? null,
-      },
+      fusionePer: provaGruppo ?? 'odometro',
+      obd: conObd
+        ? {
+            coverage:
+              pesata(v => v.obd?.coverage) ??
+              Math.min(...gruppo.filter(v => v.obd).map(v => v.obd!.coverage)),
+            sampleCount: gruppo.reduce((s, v) => s + (v.obd?.sampleCount ?? 0), 0),
+            distanceObdKm: somma(v => v.obd?.distanceObdKm),
+            maxSpeedKmh: gruppo.some(v => v.obd?.maxSpeedKmh != null)
+              ? Math.max(...gruppo.map(v => v.obd?.maxSpeedKmh ?? 0))
+              : null,
+            socStartObd: vecchio.obd?.socStartObd ?? null,
+            socEndObd: nuovo.obd?.socEndObd ?? null,
+            movingStart: vecchio.obd?.movingStart ?? null,
+            movingEnd: nuovo.obd?.movingEnd ?? null,
+            energyGrossKwh: somma(v => v.obd?.energyGrossKwh),
+            energyRegenGrossKwh: somma(v => v.obd?.energyRegenGrossKwh),
+            powerCoverage: potPesata,
+            sessionId: nuovo.obd?.sessionId ?? null,
+          }
+        : null,
     });
     gruppo = [];
+    provaGruppo = null;
   };
 
   for (const v of viaggi) {
     // La lista è dal più recente: v è più vecchio dell'ultimo del gruppo.
-    if (gruppo.length && stessaGuida(gruppo[gruppo.length - 1], v)) {
+    const prova = gruppo.length ? stessaGuida(gruppo[gruppo.length - 1], v) : null;
+    if (prova) {
+      // La sessione OBD è la prova più forte: se anche una sola saldatura del
+      // gruppo viene da lei, la card lo dichiara
+      if (prova === 'sessione' || provaGruppo === null) provaGruppo = prova;
       gruppo.push(v);
       continue;
     }
@@ -422,7 +449,8 @@ function CardMisurata({
           </p>
           {trip.ritagli != null && trip.ritagli > 1 && (
             <p className="text-xs text-teal-300/80 mt-0.5">
-              {trip.ritagli} ritagli ricomposti · sessione OBD
+              {trip.ritagli} ritagli ricomposti ·{' '}
+              {trip.fusionePer === 'odometro' ? 'odometro continuo' : 'sessione OBD'}
             </p>
           )}
         </div>
@@ -511,6 +539,12 @@ function CardCompatta({ trip }: { trip: Trip }) {
           {socFine != null &&
             ` · ${Math.round(socInizio)} → ${Math.round(socFine)}%`}
         </p>
+        {trip.ritagli != null && trip.ritagli > 1 && (
+          <p className="text-xs text-teal-300/80 mt-0.5">
+            {trip.ritagli} ritagli ricomposti ·{' '}
+            {trip.fusionePer === 'odometro' ? 'odometro continuo' : 'sessione OBD'}
+          </p>
+        )}
         {obdParziale && (
           <p className="text-xs text-gray-500 mt-0.5">
             OBD parziale · copertura {Math.floor((trip.obd!.coverage ?? 0) * 100)}%
