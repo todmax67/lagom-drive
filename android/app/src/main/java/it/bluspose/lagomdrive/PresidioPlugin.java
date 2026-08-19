@@ -2,10 +2,13 @@ package it.bluspose.lagomdrive;
 
 import android.Manifest;
 import android.app.ActivityManager;
-import android.content.Context;
 import android.content.Intent;
+import android.content.Context;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
+import android.os.PowerManager;
+import android.provider.Settings;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -64,6 +67,7 @@ public class PresidioPlugin extends Plugin {
         JSObject esito = new JSObject();
         esito.put("attivo", inEsecuzione());
         esito.put("notifiche", notifichePermesse());
+        esito.put("batteria", senzaRestrizioniBatteria());
         call.resolve(esito);
     }
 
@@ -79,7 +83,44 @@ public class PresidioPlugin extends Plugin {
         JSObject esito = new JSObject();
         esito.put("attivo", inEsecuzione());
         esito.put("notifiche", notifichePermesse());
+        esito.put("batteria", senzaRestrizioniBatteria());
         call.resolve(esito);
+    }
+
+    /**
+     * L'app è esente dall'ottimizzazione batteria? Senza esenzione Android può
+     * congelare la webview anche col servizio in primo piano: è il "background"
+     * che l'utente cercava nelle impostazioni e non trovava.
+     */
+    @PluginMethod
+    public void apriImpostazioniBatteria(PluginCall call) {
+        try {
+            Intent i = new Intent(
+                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                Uri.parse("package:" + getContext().getPackageName())
+            );
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+            call.resolve();
+        } catch (Exception e) {
+            // Il dialogo diretto può non esistere: si ripiega sulla scheda app
+            try {
+                Intent i = new Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + getContext().getPackageName())
+                );
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(i);
+                call.resolve();
+            } catch (Exception e2) {
+                call.reject("Impostazioni non apribili: " + e2.getMessage());
+            }
+        }
+    }
+
+    private boolean senzaRestrizioniBatteria() {
+        PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+        return pm == null || pm.isIgnoringBatteryOptimizations(getContext().getPackageName());
     }
 
     private boolean notifichePermesse() {

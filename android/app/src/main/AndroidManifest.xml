@@ -64,4 +64,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- L'esenzione dall'ottimizzazione batteria: senza, Android congela la
+         webview anche col servizio in primo piano (visto sul campo il 19 ago).
+         App personale installata a mano: non passa dal Play Store. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 </manifest>
