@@ -18,15 +18,31 @@ import { prisma } from '@/lib/prisma';
  * fondere su quelli incollava insieme una spesa e il ritorno a casa, e
  * perfino due guide separate da una ricarica.
  *
- * La prova vera è una misura: quanto è durato il PLATEAU dell'odometro alla
- * giunzione, cioè quanto l'auto è stata davvero ferma fra un ritaglio e
- * l'altro. Pochi minuti sono un semaforo; mezz'ora è un'altra partenza.
+ * Nemmeno il PLATEAU dell'odometro serve, e la seconda versione è caduta su
+ * questo: sulla CMA l'odometro resta fermo per tutta la marcia, quindi il
+ * plateau alla giunzione dura sosta PIÙ il viaggio successivo — misurava la
+ * durata della tratta seguente, non la fermata (il minimo del plateau
+ * coincideva con l'orario di chiusura del viaggio prima in 75 casi su 75).
+ *
+ * Quel che si può misurare davvero è la RIPARTENZA: la sosta finisce al primo
+ * segno di movimento dopo la chiusura del ritaglio, quale che sia il testimone
+ * che lo tradisce per primo —
+ * - la CARICA che scende: l'auto ha ricominciato a consumare. È il testimone
+ *   che parla sulla CMA, dove l'odometro tace per tutta la marcia;
+ * - l'ODOMETRO che avanza: sulla SEA scatta a ogni poll, e dice "non mi sono
+ *   mai fermato" quando la carica intera è troppo grossolana per accorgersene
+ *   (su tre chilometri il punto percentuale può non muoversi per sei minuti).
+ *
+ * Serve tenerli entrambi: da solo, il primo perde le guide della EX30, il
+ * secondo non vede niente sulla XC40. E se in mezzo c'è una ricarica nessuno
+ * dei due parla — la carica sale, l'odometro tace — quindi i due ritagli
+ * restano due guide, che è la risposta giusta.
  */
 
-// Oltre questa sosta alla giunzione i due ritagli sono due guide. Sotto, si
-// può ancora essere in coda a un semaforo: a passo d'uomo un chilometro di
-// odometro può non scattare per qualche minuto.
+// Oltre questa sosta i due ritagli sono due guide
 const SOSTA_MAX_MS = 5 * 60 * 1000;
+// Oltre questo, cercare la ripartenza non ha senso: è comunque un'altra guida
+const RICERCA_MAX_MS = 60 * 60 * 1000;
 
 // La sessione OBD porta i suoi tempi veri (non retrodatati): lì lo stacco
 // misura qualcosa, ed è la stessa soglia della ricomposizione dei ritagli.
@@ -54,40 +70,54 @@ export async function marchiaGuide(
   const marchio = new Map<string, string>();
   if (viaggi.length === 0) return marchio;
 
-  // Le giunzioni candidate: coppie consecutive con l'odometro che si tiene.
-  // Un buco nell'odometro significa una strada che nessuno ha registrato, e
-  // due guide separate da un viaggio mancante non sono la stessa guida.
-  const giunzioni: number[] = [];
-  for (let i = 1; i < viaggi.length; i++) {
-    const prec = viaggi[i - 1];
-    const nuovo = viaggi[i];
-    if (
-      prec.endOdometer !== null &&
-      nuovo.startOdometer !== null &&
-      prec.endOdometer === nuovo.startOdometer
-    ) {
-      giunzioni.push(prec.endOdometer);
-    }
-  }
+  // Una sola lettura dei campioni sull'arco dei viaggi: la ripartenza si
+  // cerca in memoria, non con una interrogazione per giunzione.
+  const daMs = viaggi[0].startedAt.getTime();
+  const aMs = Math.max(
+    ...viaggi.map(v => (v.endedAt ?? v.startedAt).getTime())
+  );
+  const campioni = await prisma.batterySnapshot
+    .findMany({
+      where: {
+        userId,
+        createdAt: { gte: new Date(daMs), lte: new Date(aMs + RICERCA_MAX_MS) },
+      },
+      orderBy: { createdAt: 'asc' },
+      select: { createdAt: true, level: true, odometer: true },
+    })
+    .catch(() => [] as { createdAt: Date; level: number; odometer: number | null }[]);
 
-  // Quanto è rimasto fermo l'odometro su ciascun valore di giunzione: una
-  // sola interrogazione per tutte. L'odometro cresce e basta, quindi un
-  // valore non si ripresenta mai e il plateau non è ambiguo.
-  const soste = new Map<number, number>();
-  if (giunzioni.length > 0) {
-    const plateau = await prisma.batterySnapshot
-      .groupBy({
-        by: ['odometer'],
-        where: { userId, odometer: { in: [...new Set(giunzioni)] } },
-        _min: { createdAt: true },
-        _max: { createdAt: true },
-      })
-      .catch(() => []);
-    for (const p of plateau) {
-      if (p.odometer === null || !p._min.createdAt || !p._max.createdAt) continue;
-      soste.set(p.odometer, p._max.createdAt.getTime() - p._min.createdAt.getTime());
+  /**
+   * Quanto è durata la sosta fra la chiusura di un ritaglio e la ripartenza:
+   * il primo campione, dopo la chiusura, che porta un segno di movimento —
+   * carica più bassa OPPURE odometro più avanti. null quando la ripartenza
+   * non si osserva (auto in carica, campioni assenti): nel dubbio i due
+   * ritagli restano due guide.
+   *
+   * La risoluzione è quella del polling (1-2 minuti in guida, di più da
+   * fermi): la soglia dei cinque minuti va letta con quella grana.
+   */
+  const sostaAllaGiunzione = (
+    chiusura: Date,
+    odoGiunzione: number,
+    limite: Date
+  ): number | null => {
+    const t0 = chiusura.getTime();
+    const fine = limite.getTime() + RICERCA_MAX_MS;
+    let livelloArrivo: number | null = null;
+    for (const c of campioni) {
+      const t = c.createdAt.getTime();
+      if (t <= t0) {
+        livelloArrivo = c.level; // l'ultimo fino alla chiusura, compresa
+        continue;
+      }
+      if (t > fine) break;
+      const consuma = livelloArrivo !== null && c.level < livelloArrivo;
+      const avanza = c.odometer !== null && c.odometer > odoGiunzione;
+      if (consuma || avanza) return t - t0;
     }
-  }
+    return null;
+  };
 
   let guidaId = viaggi[0].id;
   // Le sessioni OBD viste finora nella guida: il divieto fra sessioni diverse
@@ -113,11 +143,18 @@ export async function marchiaGuide(
     } else if (
       prec.endOdometer !== null &&
       nuovo.startOdometer !== null &&
-      prec.endOdometer === nuovo.startOdometer
+      prec.endOdometer === nuovo.startOdometer &&
+      prec.endedAt !== null
     ) {
-      // Senza sessioni da confrontare: la sosta misurata alla giunzione
-      const sosta = soste.get(prec.endOdometer);
-      unisci = sosta !== undefined && sosta < SOSTA_MAX_MS;
+      // Senza sessioni da confrontare: la sosta letta dalla carica. La
+      // continuità dell'odometro resta solo come guardia — da sola non prova
+      // niente, perché il rilevatore la produce per costruzione.
+      const sosta = sostaAllaGiunzione(
+        prec.endedAt,
+        prec.endOdometer,
+        nuovo.endedAt ?? prec.endedAt
+      );
+      unisci = sosta !== null && sosta < SOSTA_MAX_MS;
     }
 
     if (!unisci) {
