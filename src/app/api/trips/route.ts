@@ -42,7 +42,7 @@ export async function GET() {
       endOdometer: t.endOdometer,
       sessionId: perViaggio.get(t.id)?.sessionId ?? null,
     }))
-  ).catch(() => new Map<string, string>());
+  );
 
   // La capacità serve alla card fusa: il dedotto di una guida intera si
   // calcola sul suo ΔSoC complessivo, non sommando i ΔSoC dei ritagli — che

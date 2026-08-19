@@ -39,10 +39,18 @@ import { prisma } from '@/lib/prisma';
  * restano due guide, che è la risposta giusta.
  */
 
-// Oltre questa sosta i due ritagli sono due guide
+// Oltre questa sosta i due ritagli sono due guide. La grana della misura è
+// quella del polling (2 minuti in marcia), quindi la soglia va letta con
+// quel margine: è una soglia fra "semaforo" e "commissione", non un cronometro.
 const SOSTA_MAX_MS = 5 * 60 * 1000;
 // Oltre questo, cercare la ripartenza non ha senso: è comunque un'altra guida
 const RICERCA_MAX_MS = 60 * 60 * 1000;
+// Un BUCO DI RACCOLTA non è una sosta. Se nell'intervallo scoperto l'auto ha
+// fatto strada a velocità di marcia, non si era fermata: non la stavamo
+// guardando. Senza questa distinzione un poll saltato (succede: sul campione
+// il 2% degli intervalli supera i cinque minuti) spezzerebbe in due una guida
+// ininterrotta, inventando una sosta che i chilometri stessi smentiscono.
+const VELOCITA_MARCIA_MIN = 15; // km/h
 
 // La sessione OBD porta i suoi tempi veri (non retrodatati): lì lo stacco
 // misura qualcosa, ed è la stessa soglia della ricomposizione dei ritagli.
@@ -84,8 +92,11 @@ export async function marchiaGuide(
       },
       orderBy: { createdAt: 'asc' },
       select: { createdAt: true, level: true, odometer: true },
-    })
-    .catch(() => [] as { createdAt: Date; level: number; odometer: number | null }[]);
+    });
+  // Nessun catch: un guasto di lettura non deve travestirsi da "nessuna sosta
+  // misurabile", che le due superfici degraderebbero ciascuna per conto suo —
+  // la lista con una guida e gli aggregati con undici. Se i campioni non si
+  // leggono, non si legge nemmeno la tabella dei viaggi: il guasto è uno solo.
 
   /**
    * Quanto è durata la sosta fra la chiusura di un ritaglio e la ripartenza:
@@ -97,14 +108,18 @@ export async function marchiaGuide(
    * La risoluzione è quella del polling (1-2 minuti in guida, di più da
    * fermi): la soglia dei cinque minuti va letta con quella grana.
    */
-  const sostaAllaGiunzione = (
+  const ripartenza = (
     chiusura: Date,
     odoGiunzione: number,
     limite: Date
-  ): number | null => {
+  ): { dopoMs: number; km: number; scoperto: boolean } | null => {
     const t0 = chiusura.getTime();
     const fine = limite.getTime() + RICERCA_MAX_MS;
     let livelloArrivo: number | null = null;
+    // Quanti campioni sono passati fra la chiusura e la ripartenza senza
+    // mostrare movimento: se ce n'è anche uno solo, l'auto era ferma e
+    // l'abbiamo VISTA ferma — non è un buco di raccolta.
+    let mutiInMezzo = 0;
     for (const c of campioni) {
       const t = c.createdAt.getTime();
       if (t <= t0) {
@@ -114,7 +129,14 @@ export async function marchiaGuide(
       if (t > fine) break;
       const consuma = livelloArrivo !== null && c.level < livelloArrivo;
       const avanza = c.odometer !== null && c.odometer > odoGiunzione;
-      if (consuma || avanza) return t - t0;
+      if (consuma || avanza) {
+        return {
+          dopoMs: t - t0,
+          km: c.odometer !== null ? Math.max(0, c.odometer - odoGiunzione) : 0,
+          scoperto: mutiInMezzo === 0,
+        };
+      }
+      mutiInMezzo++;
     }
     return null;
   };
@@ -149,12 +171,24 @@ export async function marchiaGuide(
       // Senza sessioni da confrontare: la sosta letta dalla carica. La
       // continuità dell'odometro resta solo come guardia — da sola non prova
       // niente, perché il rilevatore la produce per costruzione.
-      const sosta = sostaAllaGiunzione(
+      const r = ripartenza(
         prec.endedAt,
         prec.endOdometer,
         nuovo.endedAt ?? prec.endedAt
       );
-      unisci = sosta !== null && sosta < SOSTA_MAX_MS;
+      if (r !== null) {
+        // Ripartenza vista presto: sosta breve, stessa guida
+        const sostaBreve = r.dopoMs < SOSTA_MAX_MS;
+        // Oppure: l'intervallo era davvero SCOPERTO (nessun campione in mezzo)
+        // e i chilometri dicono che l'auto camminava — un buco di raccolta,
+        // non una fermata. Il "nessun campione in mezzo" è essenziale: sulla
+        // CMA l'odometro si aggiorna solo all'arrivo, quindi senza quella
+        // condizione una sosta di quaranta minuti seguita da venti chilometri
+        // passerebbe per marcia continua a 26 km/h.
+        const inMarcia =
+          r.scoperto && r.km >= 1 && r.km / (r.dopoMs / 3_600_000) >= VELOCITA_MARCIA_MIN;
+        unisci = sostaBreve || inMarcia;
+      }
     }
 
     if (!unisci) {

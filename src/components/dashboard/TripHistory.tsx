@@ -110,8 +110,15 @@ function ricomponi(viaggi: Trip[], codaTronca: boolean, capacita: number): Trip[
     // troncati sovrastima ogni volta che un pezzo ha recuperato energia.
     const socInizio = vecchio.startBattery;
     const socFine = nuovo.endBattery;
+    // Se il rilevatore ha rifiutato l'energia anche a UN SOLO ritaglio — una
+    // ricarica dentro la finestra, un buco che l'avrebbe nascosta — il rifiuto
+    // vale per la guida intera: leggere solo i due estremi la resusciterebbe
+    // scavalcando il giudizio di chi i campioni li aveva davanti.
+    const batteriaAttendibile = gruppo.every(v => v.energyUsedKwh != null);
     const energiaFusa =
-      socFine != null ? Math.max(0, ((socInizio - socFine) / 100) * capacita) : null;
+      batteriaAttendibile && socFine != null
+        ? Math.max(0, ((socInizio - socFine) / 100) * capacita)
+        : null;
     // Le soglie di onestà del rilevatore valgono sulla guida intera: due
     // ritagli da 5 km che nessuno dei due poteva dichiarare non diventano un
     // consumo credibile solo perché sommati — serve anche il ΔSoC.

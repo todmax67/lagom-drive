@@ -93,8 +93,12 @@ export async function GET() {
       endOdometer: true,
       distanceKm: true,
       energyUsedKwh: true,
+      startBattery: true,
+      endBattery: true,
     },
   });
+  const capacita = (await prisma.settings.findUnique({ where: { userId } }))
+    ?.batteryCapacity ?? 67;
 
   // L'unità di conto è la GUIDA, non il ritaglio: stesso giudizio della lista
   // viaggi (viaggi-fusione). E la guida entra INTERA nel secchio del suo primo
@@ -118,26 +122,34 @@ export async function GET() {
       endOdometer: v.endOdometer,
       sessionId: sessionePer.get(v.id) ?? null,
     }))
-  ).catch(() => new Map<string, string>());
+  );
 
-  // I ritagli si fondono in guide prima di entrare nei secchi
-  type Guida = { inizio: Date; km: number; kwh: number; stime: number; kmConEnergia: number };
+  // I ritagli si fondono in guide prima di entrare nei secchi. L'energia della
+  // guida si calcola con la STESSA formula della card (ΔSoC complessivo ×
+  // capacità corrente): sommare i ΔSoC dei ritagli, che il rilevatore tronca a
+  // zero uno per uno, sovrastima ogni volta che un pezzo ha recuperato — e le
+  // due superfici direbbero due numeri diversi della stessa strada.
+  type Guida = {
+    inizio: Date;
+    km: number;
+    socInizio: number;
+    socFine: number | null;
+    attendibile: boolean;
+  };
   const guide = new Map<string, Guida>();
   for (const v of viaggi) {
     const chiave = marchio.get(v.id) ?? v.id;
     const g = guide.get(chiave) ?? {
       inizio: v.startedAt,
       km: 0,
-      kwh: 0,
-      stime: 0,
-      kmConEnergia: 0,
+      socInizio: v.startBattery,
+      socFine: null,
+      attendibile: true,
     };
     if (v.distanceKm != null) g.km += v.distanceKm;
-    if (v.energyUsedKwh != null) {
-      g.kwh += v.energyUsedKwh;
-      g.stime += 1;
-      if (v.distanceKm != null) g.kmConEnergia += v.distanceKm;
-    }
+    // I viaggi arrivano in ordine crescente: l'ultimo ritaglio detta la fine
+    g.socFine = v.endBattery;
+    if (v.energyUsedKwh == null) g.attendibile = false;
     guide.set(chiave, g);
   }
 
@@ -155,13 +167,19 @@ export async function GET() {
       [mesi, giorno.slice(0, 7)],
       [anni, giorno.slice(0, 4)],
     ];
+    const energia =
+      g.attendibile && g.socFine != null
+        ? Math.max(0, ((g.socInizio - g.socFine) / 100) * capacita)
+        : null;
     for (const [mappa, chiave] of chiavi) {
       const s = mappa.get(chiave) ?? nuovoSecchio();
       s.viaggi += 1;
       s.km += g.km;
-      s.kwh += g.kwh;
-      s.stime += g.stime;
-      s.kmConEnergia += g.kmConEnergia;
+      if (energia != null) {
+        s.kwh += energia;
+        s.stime += 1;
+        s.kmConEnergia += g.km;
+      }
       mappa.set(chiave, s);
     }
   }
