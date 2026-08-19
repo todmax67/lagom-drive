@@ -72,7 +72,7 @@ export async function presidioNativoAvvia(): Promise<EsitoPresidio> {
  * permessa? null sul web puro, dove non c'è servizio da interrogare.
  */
 export async function presidioNativoStato(): Promise<
-  { attivo: boolean; notifiche: boolean } | null
+  { attivo: boolean; notifiche: boolean; batteria: boolean } | null
 > {
   const plugin = (window as unknown as FinestraCapacitor).Capacitor?.Plugins?.Presidio;
   if (!plugin?.stato) return null;
@@ -80,11 +80,22 @@ export async function presidioNativoStato(): Promise<
     const r = (await plugin.stato({})) as unknown as {
       attivo?: boolean;
       notifiche?: boolean;
+      batteria?: boolean;
     };
-    return { attivo: !!r?.attivo, notifiche: r?.notifiche !== false };
+    return {
+      attivo: !!r?.attivo,
+      notifiche: r?.notifiche !== false,
+      batteria: r?.batteria !== false,
+    };
   } catch {
     return null;
   }
+}
+
+/** Apre il dialogo di sistema per togliere l'app dall'ottimizzazione batteria */
+export async function presidioApriBatteria(): Promise<void> {
+  const plugin = (window as unknown as FinestraCapacitor).Capacitor?.Plugins?.Presidio;
+  if (plugin?.apriImpostazioniBatteria) await plugin.apriImpostazioniBatteria({});
 }
 
 export async function presidioNativoFerma(): Promise<void> {

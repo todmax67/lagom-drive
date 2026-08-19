@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Bluetooth, Send, Trash2, ArrowLeft, AlertTriangle, Radar } from 'lucide-react';
 import { collega, ricollega, supportato, INIT, type Canale, type ServizioScoperto } from '@/lib/elm327';
-import { collegaNativo, nativo, presidioNativoStato } from '@/lib/canale-nativo';
+import { collegaNativo, nativo, presidioNativoStato, presidioApriBatteria } from '@/lib/canale-nativo';
 import Registratore from '@/components/obd/Registratore';
 import Sonda from '@/components/obd/Sonda';
 import Buongiorno from '@/components/obd/Buongiorno';
@@ -33,7 +33,7 @@ export default function ObdPage() {
   // Lo stato VERO del servizio nativo: senza notifica persistente non c'è
   // servizio in primo piano, e a schermo spento la raccolta muore. Va visto
   // qui, alla scrivania, non scoperto dopo un viaggio perso.
-  const [servizio, setServizio] = useState<{ attivo: boolean; notifiche: boolean } | null>(null);
+  const [servizio, setServizio] = useState<{ attivo: boolean; notifiche: boolean; batteria: boolean } | null>(null);
   const presidioRef = useRef(false);
   // Distingue la disconnessione VOLUTA (bottone, auto-stop) dalla caduta BLE:
   // solo la caduta merita il riaggancio
@@ -291,12 +291,28 @@ export default function ObdPage() {
         )}
 
         {nativo() && servizio && (
-          <p className={`text-xs ${servizio.notifiche ? 'text-gray-400' : 'text-amber-300/90'}`}>
-            Servizio in primo piano: {servizio.attivo ? 'attivo' : 'fermo'} ·
-            notifica persistente: {servizio.notifiche ? 'permessa' : 'NEGATA'}
-            {!servizio.notifiche &&
-              ' — senza, a schermo spento Android congela la raccolta. Concedila da Impostazioni Android → App → Lagom Drive → Notifiche.'}
-          </p>
+          <div className="flex flex-col gap-2">
+            <p className={`text-xs ${servizio.notifiche && servizio.batteria ? 'text-gray-400' : 'text-amber-300/90'}`}>
+              Servizio in primo piano: {servizio.attivo ? 'attivo' : 'fermo'} ·
+              notifica: {servizio.notifiche ? 'permessa' : 'NEGATA'} ·
+              batteria: {servizio.batteria ? 'senza restrizioni' : 'OTTIMIZZATA'}
+            </p>
+            {!servizio.batteria && (
+              <div className="text-xs text-amber-300/90 flex flex-col gap-2 items-start">
+                <span>
+                  Con l&apos;ottimizzazione batteria attiva Android congela l&apos;app a
+                  schermo spento e la raccolta si ferma — è quel che è successo il
+                  19 agosto, ventiquattro minuti persi.
+                </span>
+                <button
+                  onClick={() => presidioApriBatteria()}
+                  className="px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-200"
+                >
+                  Togli le restrizioni batteria
+                </button>
+              </div>
+            )}
+          </div>
         )}
 
         <Buongiorno canale={canale} />
