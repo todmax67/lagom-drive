@@ -103,6 +103,29 @@ l'arricchimento OBD è uno strato sopra, mai una riscrittura.
 - L'energia delle soste lunghe tra due viaggi è una voce a sé della giornata,
   non si spalma sui consumi. Costo per viaggio al prezzo medio mensile del
   registro ricariche (niente FIFO).
+- **Ricomposizione dei ritagli**: il rilevatore spezza una guida ogni volta che
+  l'odometro scatta a metà strada — raramente sulla CMA, che lo aggiorna solo
+  all'arrivo, di continuo sulla SEA, che lo aggiorna a ogni poll. La cura sta
+  nella lettura, mai nel rilevatore: due ritagli sono la stessa guida se lo dice
+  la **sessione OBD** (prova forte: due sessioni diverse restano due guide) o,
+  senza dongle, se la **ripartenza** si osserva entro pochi minuti. La
+  ripartenza è il primo segno di movimento dopo la chiusura del ritaglio —
+  carica che scende (parla sulla CMA) oppure odometro che avanza (parla sulla
+  SEA): servono entrambi i testimoni, ciascuno è cieco su una piattaforma.
+  Trappole già pagate, da non ripetere: la contiguità di odometro e orari **non
+  prova niente**, il rilevatore la produce per costruzione; e il plateau
+  dell'odometro alla giunzione misura la sosta solo dove l'odometro è vivo.
+  Un intervallo scoperto in cui i chilometri dicono velocità di marcia è un
+  buco di raccolta, non una fermata — ma solo se in mezzo non c'è alcun
+  campione: vederla ferma è diverso dal non guardarla.
+- **Fusione a mano** (opzione parcheggiata, non ancora costruita): la misura ha
+  la grana del polling, quindi le soste fra i tre e i sette minuti cadono di
+  qua o di là senza che i dati possano decidere. Lì l'unico testimone che sa è
+  chi guidava: unire o separare due guide a mano, con la scelta persistita e
+  vincente sull'automatismo, e dichiarata come tale ("unita a mano") — la
+  stessa forma della promozione. **Criterio di attivazione**: quando capiterà
+  di vedere in lista una guida sbagliata, non prima; oggi il margine osservato
+  è pulito (fusioni fra 2,0 e 4,4 minuti, sosta minima fra le respinte 5,7).
 
 ### 4.3 Ricariche — AC è contabilità, DC è fisica
 
