@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { stessaGuida } from '@/lib/viaggi-fusione';
+import { marchiaGuide } from '@/lib/viaggi-fusione';
 
 /**
  * I viaggi aggregati per settimana, mese e anno (calendario Europe/Rome).
@@ -96,10 +96,11 @@ export async function GET() {
     },
   });
 
-  // Chi conta come GUIDA: i ritagli contigui valgono uno solo, con lo stesso
-  // giudizio della lista viaggi (viaggi-fusione). Km ed energia si sommano
-  // comunque per frammento — la fusione cambia solo il conteggio, e la guida
-  // finisce nel secchio del suo primo ritaglio.
+  // L'unità di conto è la GUIDA, non il ritaglio: stesso giudizio della lista
+  // viaggi (viaggi-fusione). E la guida entra INTERA nel secchio del suo primo
+  // ritaglio — conteggio, km ed energia insieme: attribuire il conteggio a un
+  // secchio e i chilometri a un altro darebbe righe con "0 viaggi · 18 km"
+  // ogni volta che una guida attraversa la mezzanotte di domenica.
   const arricchimenti = await prisma.tripEnrichment
     .findMany({
       where: { tripId: { in: viaggi.map(v => v.id) } },
@@ -107,24 +108,48 @@ export async function GET() {
     })
     .catch(() => [] as { tripId: string; sessionId: string | null }[]);
   const sessionePer = new Map(arricchimenti.map(a => [a.tripId, a.sessionId]));
-  const fondibile = (v: (typeof viaggi)[number]) => ({
-    inizioMs: v.startedAt.getTime(),
-    fineMs: v.endedAt?.getTime() ?? null,
-    startOdometer: v.startOdometer,
-    endOdometer: v.endOdometer,
-    sessionId: sessionePer.get(v.id) ?? null,
-  });
+  const marchio = await marchiaGuide(
+    userId,
+    viaggi.map(v => ({
+      id: v.id,
+      startedAt: v.startedAt,
+      endedAt: v.endedAt,
+      startOdometer: v.startOdometer,
+      endOdometer: v.endOdometer,
+      sessionId: sessionePer.get(v.id) ?? null,
+    }))
+  ).catch(() => new Map<string, string>());
+
+  // I ritagli si fondono in guide prima di entrare nei secchi
+  type Guida = { inizio: Date; km: number; kwh: number; stime: number; kmConEnergia: number };
+  const guide = new Map<string, Guida>();
+  for (const v of viaggi) {
+    const chiave = marchio.get(v.id) ?? v.id;
+    const g = guide.get(chiave) ?? {
+      inizio: v.startedAt,
+      km: 0,
+      kwh: 0,
+      stime: 0,
+      kmConEnergia: 0,
+    };
+    if (v.distanceKm != null) g.km += v.distanceKm;
+    if (v.energyUsedKwh != null) {
+      g.kwh += v.energyUsedKwh;
+      g.stime += 1;
+      if (v.distanceKm != null) g.kmConEnergia += v.distanceKm;
+    }
+    guide.set(chiave, g);
+  }
 
   const settimane = new Map<string, Secchio>();
   const mesi = new Map<string, Secchio>();
   const anni = new Map<string, Secchio>();
 
-  for (let i = 0; i < viaggi.length; i++) {
-    const v = viaggi[i];
-    // La lista è crescente: il precedente è il ritaglio più vecchio
-    const prosecuzione =
-      i > 0 && stessaGuida(fondibile(v), fondibile(viaggi[i - 1])) !== null;
-    const giorno = giornoLocale(v.startedAt);
+  for (const g of guide.values()) {
+    // La guida sceglie i suoi secchi una volta sola, dal proprio inizio: così
+    // conteggio e chilometri restano nella stessa riga anche quando la strada
+    // attraversa la mezzanotte
+    const giorno = giornoLocale(g.inizio);
     const chiavi: [Map<string, Secchio>, string][] = [
       [settimane, giornoLocale(lunediDi(giorno))],
       [mesi, giorno.slice(0, 7)],
@@ -132,13 +157,11 @@ export async function GET() {
     ];
     for (const [mappa, chiave] of chiavi) {
       const s = mappa.get(chiave) ?? nuovoSecchio();
-      if (!prosecuzione) s.viaggi += 1;
-      if (v.distanceKm != null) s.km += v.distanceKm;
-      if (v.energyUsedKwh != null) {
-        s.kwh += v.energyUsedKwh;
-        s.stime += 1;
-        if (v.distanceKm != null) s.kmConEnergia += v.distanceKm;
-      }
+      s.viaggi += 1;
+      s.km += g.km;
+      s.kwh += g.kwh;
+      s.stime += g.stime;
+      s.kmConEnergia += g.kmConEnergia;
       mappa.set(chiave, s);
     }
   }
