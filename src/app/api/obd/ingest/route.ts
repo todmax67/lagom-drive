@@ -120,10 +120,15 @@ export async function POST(request: Request) {
   const now = Date.now();
   const rows = [];
   let rejected = 0;
+  // Il PERCHE' dello scarto, non solo il quanto: un contatore che dice "2000
+  // scartati" senza motivo costringe a indovinare, e i tre casi hanno rimedi
+  // opposti (client difettoso / orologio sballato / bus che non risponde).
+  const motivi = { malformati: 0, orologio: 0, senzaLetture: 0 };
 
   for (const sample of samples) {
     if (typeof sample !== 'object' || sample === null) {
       rejected++;
+      motivi.malformati++;
       continue;
     }
     const s = sample as Record<string, unknown>;
@@ -132,6 +137,7 @@ export async function POST(request: Request) {
     const ts = recordedAt.getTime();
     if (Number.isNaN(ts) || ts < now - MAX_AGE_MS || ts > now + MAX_SKEW_MS) {
       rejected++;
+      motivi.orologio++;
       continue;
     }
 
@@ -141,6 +147,7 @@ export async function POST(request: Request) {
 
     if (Object.values(metrics).every(v => v === null) && !s.didRaw) {
       rejected++;
+      motivi.senzaLetture++;
       continue;
     }
 
@@ -250,6 +257,8 @@ export async function POST(request: Request) {
     accepted: inseriti,
     duplicates: rows.length - inseriti,
     rejected,
+    // La ripartizione degli scarti, per non doverla dedurre a posteriori
+    rejectedReasons: motivi,
     // Dichiarata ma scartata (malformata o di altro proprietario): il client
     // deve poterlo vedere invece di credere i campioni agganciati.
     sessionDropped: sessionDeclared && sessionId === null,
