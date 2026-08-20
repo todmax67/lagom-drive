@@ -53,6 +53,23 @@ export const INTERVALLO_COPERTO_MS = 10_000;
 // Sotto i due campioni utili non c'è niente da misurare
 const MIN_CAMPIONI = 2;
 
+// La finestra di aggancio è larga ±20 minuti e il confine col vicino è il
+// punto medio del buco: regge finché i tempi del cloud somigliano alla realtà.
+// Quando il cloud RITARDA l'apertura del viaggio successivo il punto medio
+// cade DOPO la partenza vera del vicino, e i primi campioni della guida dopo
+// finiscono in questa finestra (20 ago 2026: registrazione del ritorno alle
+// 13:07, viaggio cloud aperto alle 13:28, punto medio alle 13:07:47 — tre
+// campioni passati). Bastano a spostare `ultimoMoto` ventun minuti più in là:
+// la base si allunga sul parcheggio e un ritaglio coperto al 91% si dichiara
+// al 39%, con un buco fantasma lungo quanto la sosta.
+//
+// Quindi l'allargamento della base sui margini si ferma al primo SILENZIO più
+// lungo di questa soglia: non è "lo stesso viaggio visto più largo", è un
+// altro viaggio. Vale solo sui margini — dentro la finestra del cloud i
+// campioni restano tutti, o un buco di raccolta lungo spaccherebbe in due un
+// viaggio vero (vedi il ramo `dentroFinestra` più sotto).
+const SILENZIO_ALTRA_GUIDA_MS = 10 * 60 * 1000;
+
 // Le bande grigie della UI non hanno bisogno di mille voci: oltre questo tetto
 // i buchi restano nel conteggio della copertura ma non nell'elenco.
 const MAX_BUCHI_ELENCATI = 40;
@@ -67,6 +84,56 @@ export function calcolaArricchimento(
     (a, b) => a.recordedAt.getTime() - b.recordedAt.getTime()
   );
 
+  // I campioni di QUESTA guida.
+  //
+  // Quelli DENTRO la finestra del cloud ci stanno per definizione, buchi di
+  // raccolta compresi: un viaggio spaccato a metà da una caduta BLE di venti
+  // minuti (19 ago 2026, sera) resta un viaggio solo, e i campioni di là dal
+  // buco sono suoi quanto gli altri. Una regola di sola contiguità li buttava,
+  // e la copertura di quel viaggio crollava da 38% a 20% — misurare peggio.
+  //
+  // Dai MARGINI ±20 minuti si accetta invece solo ciò che è CONTIGUO: è di là
+  // che entrano i campioni del vicino (SILENZIO_ALTRA_GUIDA_MS).
+  const dentroFinestra = ordinati.filter(
+    c => c.recordedAt >= viaggio.startedAt && c.recordedAt <= viaggio.endedAt
+  );
+  const silenzioPrima = (i: number) =>
+    ordinati[i].recordedAt.getTime() - ordinati[i - 1].recordedAt.getTime();
+
+  let dellaGuida: CampioneAccoppiabile[];
+  if (dentroFinestra.length > 0) {
+    let sx = ordinati.indexOf(dentroFinestra[0]);
+    let dx = ordinati.indexOf(dentroFinestra[dentroFinestra.length - 1]);
+    while (sx > 0 && silenzioPrima(sx) < SILENZIO_ALTRA_GUIDA_MS) sx--;
+    while (dx < ordinati.length - 1 && silenzioPrima(dx + 1) < SILENZIO_ALTRA_GUIDA_MS) dx++;
+    dellaGuida = ordinati.slice(sx, dx + 1);
+  } else {
+    // Il cloud è così sfasato da non contenere un solo campione: si ripiega
+    // sulla tratta contigua più vicina alla finestra. È il caso per cui la
+    // rifinitura dei tempi esiste, e rinunciare a misurare sarebbe peggio.
+    const tratte: CampioneAccoppiabile[][] = [];
+    for (const c of ordinati) {
+      const corrente = tratte[tratte.length - 1];
+      if (
+        !corrente ||
+        c.recordedAt.getTime() - corrente[corrente.length - 1].recordedAt.getTime() >=
+          SILENZIO_ALTRA_GUIDA_MS
+      ) {
+        tratte.push([c]);
+      } else {
+        corrente.push(c);
+      }
+    }
+    // Positiva quando la tratta tocca il viaggio, negativa quando è staccata:
+    // così il massimo sceglie la più vicina anche senza sovrapposizione.
+    const vicinanza = (t: CampioneAccoppiabile[]) =>
+      Math.min(t[t.length - 1].recordedAt.getTime(), viaggio.endedAt.getTime()) -
+      Math.max(t[0].recordedAt.getTime(), viaggio.startedAt.getTime());
+    dellaGuida = tratte.reduce((migliore, t) =>
+      vicinanza(t) > vicinanza(migliore) ? t : migliore
+    );
+  }
+
   // Rifinitura dei tempi: primo e ultimo istante in cui l'auto si muoveva.
   //
   // Regola del fermo testimoniato: un confine rifinito vale solo se un campione
@@ -76,7 +143,7 @@ export function calcolaArricchimento(
   // auto già in moto": senza il fermo a fare da testimone, la base collasserebbe
   // su ciò che è stato campionato e la copertura dichiarerebbe 100% su mezzo
   // viaggio — il denominatore deve poter essere più largo del numeratore.
-  const inMovimento = ordinati.filter(c => (c.speedKmh ?? 0) > 0);
+  const inMovimento = dellaGuida.filter(c => (c.speedKmh ?? 0) > 0);
   const primoMoto = inMovimento.length ? inMovimento[0].recordedAt : null;
   const ultimoMoto = inMovimento.length
     ? inMovimento[inMovimento.length - 1].recordedAt
@@ -90,7 +157,7 @@ export function calcolaArricchimento(
 
   const fermoPrima =
     rifinituraValida &&
-    ordinati.some(
+    dellaGuida.some(
       c =>
         c.speedKmh === 0 &&
         c.recordedAt < primoMoto &&
@@ -98,7 +165,7 @@ export function calcolaArricchimento(
     );
   const fermoDopo =
     rifinituraValida &&
-    ordinati.some(
+    dellaGuida.some(
       c =>
         c.speedKmh === 0 &&
         c.recordedAt > ultimoMoto &&
@@ -127,7 +194,7 @@ export function calcolaArricchimento(
   // Copertura e buchi si misurano dentro la base, estremi inclusi: un viaggio
   // campionato solo a metà deve dichiararlo anche se i campioni che ha sono
   // fitti. I confini della base contano come punti di appoggio.
-  const dentroBase = ordinati.filter(
+  const dentroBase = dellaGuida.filter(
     c => c.recordedAt >= baseInizio && c.recordedAt <= baseFine
   );
   const appoggi = [
@@ -157,7 +224,7 @@ export function calcolaArricchimento(
 
   // Distanza a trapezio sui soli tratti coperti: sommare attraverso un buco
   // inventerebbe strada, e la strada inventata è il contrario del progetto.
-  const conVelocita = ordinati.filter(c => c.speedKmh !== null);
+  const conVelocita = dellaGuida.filter(c => c.speedKmh !== null);
   let distanzaKm = 0;
   for (let i = 1; i < conVelocita.length; i++) {
     const dtMs =
@@ -174,7 +241,7 @@ export function calcolaArricchimento(
   // e' trazione (lordo), negativo e' recupero (lordo), e il netto e' la
   // differenza. Dal solo saldo SOC il recupero era osservabile solo in
   // discesa; qui si misura sempre.
-  const conPotenza = ordinati.filter(c => c.packPowerKw !== null);
+  const conPotenza = dellaGuida.filter(c => c.packPowerKw !== null);
   let lordoKwh = 0;
   let recuperoKwh = 0;
   for (let i = 1; i < conPotenza.length; i++) {
@@ -207,7 +274,7 @@ export function calcolaArricchimento(
   const conSoc = dentroBase.filter(c => c.socDisplay !== null);
 
   return {
-    sampleCount: ordinati.length,
+    sampleCount: dellaGuida.length,
     coverage,
     gaps,
     movingStart,
