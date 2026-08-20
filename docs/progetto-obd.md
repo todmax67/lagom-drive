@@ -276,6 +276,19 @@ riscrittura. Criterio di attivazione: quando i buchi da Wake Lock o l'avvio
 manuale costano più del progetto del guscio — realisticamente insieme alla curva
 DC in mobilità, o quando la registrazione dei viaggi diventa quotidiana.
 
+**Cosa non ha comprato (20 ago 2026).** Il guscio ha chiuso i buchi da timer
+congelati: il battito nativo tiene il ciclo a cadenza 1,0 s per tutta la durata
+in cui il canale regge. Resta aperto uno strato più sotto — **la connessione BLE
+cade a schermo spento** e il presidio si riaggancia da solo, ma il tempo del
+riaggancio è buco (viaggio del 20 ago: 1339 campioni su 28,6 min, copertura
+~78%, due cadute di 5,0 e 0,7 minuti). È un guasto del *canale*, non del ciclo:
+va attaccato lì, non con altri metronomi. **Aggiramento in uso** (deciso
+dall'utente, non un ripiego temporaneo da rimuovere in fretta): telefono in USB
+salendo in auto — lo schermo resta fioco ma vivo, il radio non viene degradato,
+e il telefono intanto si ricarica. **Criterio di attivazione**: quando il gesto
+dell'USB verrà dimenticato abbastanza spesso da costare più dello studio del
+comportamento BLE di Android a schermo spento.
+
 ## 6. Il collante dati (tocchi di schema, concettuali)
 
 - Arricchimenti di viaggi e sessioni come **strato separato** dai rilevatori
