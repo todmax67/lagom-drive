@@ -36,7 +36,27 @@ const GIRI_VIAGGIO_PER_LENTO = 45;
 // (l'auto dorme) prima di chiudere da soli — 150 giri a 2 s sono 5 minuti
 const GIRI_MUTI_PER_STOP = 150;
 
-type Conteggi = { inviati: number; duplicati: number; scartati: number; letti: number };
+type Conteggi = {
+  inviati: number;
+  duplicati: number;
+  scartati: number;
+  letti: number;
+  // Il perché degli scarti, così dal pannello si legge il rimedio e non solo
+  // il sintomo. Le chiavi vengono dall'ingest.
+  motivi: { malformati: number; orologio: number; senzaLetture: number };
+  // La salute del GPS, che è la materia prima della distanza: il 20 agosto un
+  // giro ha avuto il 4% di campioni con velocità contro il 92% degli altri, e
+  // 2008 secondi sono rimasti fuori dall'integrale senza che nulla lo dicesse.
+  gps: { usati: number; imprecisi: number };
+};
+const CONTEGGI_VUOTI: Conteggi = {
+  inviati: 0,
+  duplicati: 0,
+  scartati: 0,
+  letti: 0,
+  motivi: { malformati: 0, orologio: 0, senzaLetture: 0 },
+  gps: { usati: 0, imprecisi: 0 },
+};
 
 export default function Registratore({
   canale,
@@ -51,7 +71,7 @@ export default function Registratore({
   const occupazione = useSyncExternalStore(sottoscriviOccupazione, leggiOccupazione, () => null);
   const [attivo, setAttivo] = useState(false);
   const [ultimo, setUltimo] = useState<Campione | null>(null);
-  const [conteggi, setConteggi] = useState<Conteggi>({ inviati: 0, duplicati: 0, scartati: 0, letti: 0 });
+  const [conteggi, setConteggi] = useState<Conteggi>(CONTEGGI_VUOTI);
   const [messaggio, setMessaggio] = useState<string | null>(null);
 
   // I ref evitano le chiusure obsolete: il ciclo di lettura sopravvive ai render
@@ -169,11 +189,17 @@ export default function Registratore({
         setMessaggio(`Invio rifiutato (${r.status}): ${d.message ?? ''}`);
         return;
       }
+      const m = (d.rejectedReasons ?? {}) as Partial<Conteggi['motivi']>;
       setConteggi(c => ({
         ...c,
         inviati: c.inviati + (d.accepted ?? 0),
         duplicati: c.duplicati + (d.duplicates ?? 0),
         scartati: c.scartati + (d.rejected ?? 0),
+        motivi: {
+          malformati: c.motivi.malformati + (m.malformati ?? 0),
+          orologio: c.motivi.orologio + (m.orologio ?? 0),
+          senzaLetture: c.motivi.senzaLetture + (m.senzaLetture ?? 0),
+        },
       }));
     } catch (err) {
       // Rete assente (galleria, parcheggio interrato): la fetta torna in coda
@@ -249,11 +275,19 @@ export default function Registratore({
     // Il tempo del fix, non quello del callback: su Android possono
     // divergere di secondi, e il dt sbagliato inventa velocità.
     const t = pos.timestamp;
-    // Un fix impreciso non è una misura: il jitter da fermo con 30 m di
-    // errore produce chilometri orari fantasma.
-    if (pos.coords.accuracy != null && pos.coords.accuracy > 25) return;
+    // Un fix impreciso non è una misura QUANDO la velocità va dedotta dalle
+    // posizioni: lì il jitter da fermo con 30 m di errore produce chilometri
+    // orari fantasma, ed è per quello che la soglia esiste.
+    //
+    // Ma `coords.speed` non si deduce dalle posizioni: su Android viene dal
+    // Doppler della portante, ed è buona anche quando la precisione
+    // ORIZZONTALE è scadente — sono due grandezze diverse. Sbarrarle insieme
+    // buttava via la misura buona per un difetto che non la riguarda: il 20
+    // agosto un giro in autostrada è sceso al 4% di campioni con velocità
+    // contro il 92% degli altri, e la distanza è collassata a 0,21 km su 19.
+    const preciso = pos.coords.accuracy == null || pos.coords.accuracy <= 25;
     let kmh: number | null = pos.coords.speed !== null ? pos.coords.speed * 3.6 : null;
-    if (kmh === null && posPrecRef.current) {
+    if (kmh === null && preciso && posPrecRef.current) {
       const dt = (t - posPrecRef.current.t) / 1000;
       if (dt > 0.5) {
         const dLat = (pos.coords.latitude - posPrecRef.current.lat) * 111_320;
@@ -262,11 +296,18 @@ export default function Registratore({
         kmh = (Math.hypot(dLat, dLon) / dt) * 3.6;
       }
     }
-    posPrecRef.current = { lat: pos.coords.latitude, lon: pos.coords.longitude, t };
+    // Il riferimento della deduzione resta ai soli fix precisi: un fix
+    // impreciso non deve diventare l'origine da cui si misura il prossimo.
+    if (preciso) posPrecRef.current = { lat: pos.coords.latitude, lon: pos.coords.longitude, t };
+    if (!preciso && kmh === null) {
+      setConteggi(c => ({ ...c, gps: { ...c.gps, imprecisi: c.gps.imprecisi + 1 } }));
+      return;
+    }
     if (kmh === null || !Number.isFinite(kmh) || kmh > 250) return;
     // Sotto i 3 km/h il GPS da fermo produce rumore, non velocità
     if (kmh < 3) kmh = 0;
     gpsRef.current = { kmh, quando: Date.now() };
+    setConteggi(c => ({ ...c, gps: { ...c.gps, usati: c.gps.usati + 1 } }));
     if (kmh >= SOGLIA_VIAGGIO_KMH) ultimoMotoRef.current = Date.now();
   };
 
@@ -372,6 +413,14 @@ export default function Registratore({
         ? ultimaSessioneRef.current.sid
         : null;
     idSessioneRef.current = ripresa ?? crypto.randomUUID();
+    // I contatori valgono per la SESSIONE, non per la vita della pagina. Senza
+    // questo azzeramento restavano su dal primo avvio: col guscio in USB la
+    // pagina resta aperta tutto il giorno e il presidio apre e chiude una
+    // sessione per viaggio, quindi il pannello sommava giri diversi e un
+    // numero grosso non diceva più a quale strada appartenesse.
+    // Sul RIAGGANCIO no: lì la sessione prosegue, e azzerare perderebbe il
+    // conto dei campioni già mandati per quella stessa guida.
+    if (!ripresa) setConteggi(CONTEGGI_VUOTI);
     canaleDelCicloRef.current = canale;
     contestoRef.current = 'libero';
     setAttivo(true);
@@ -679,7 +728,18 @@ export default function Registratore({
           <span className="text-xs text-gray-400">
             {conteggi.letti} letti · {conteggi.inviati} salvati
             {conteggi.duplicati > 0 && ` · ${conteggi.duplicati} già presenti`}
-            {conteggi.scartati > 0 && ` · ${conteggi.scartati} scartati`}
+            {conteggi.scartati > 0 &&
+              ` · ${conteggi.scartati} scartati (${[
+                conteggi.motivi.senzaLetture && `${conteggi.motivi.senzaLetture} senza letture`,
+                conteggi.motivi.orologio && `${conteggi.motivi.orologio} fuori tempo`,
+                conteggi.motivi.malformati && `${conteggi.motivi.malformati} malformati`,
+              ]
+                .filter(Boolean)
+                .join(', ') || 'motivo non dichiarato'})`}
+            {(conteggi.gps.usati > 0 || conteggi.gps.imprecisi > 0) &&
+              ` · GPS ${conteggi.gps.usati} fix${
+                conteggi.gps.imprecisi > 0 ? `, ${conteggi.gps.imprecisi} imprecisi` : ''
+              }`}
           </span>
         )}
       </div>
