@@ -32,6 +32,16 @@ const ISTERESI_SOSTA_MS = 120_000;
 // PID standard): ~45 s a 1 Hz, come il "clima ogni 30-60 s" della bussola
 const GIRI_VIAGGIO_PER_LENTO = 45;
 
+// Il watch del GPS può morire e non dirlo: se la registrazione parte in
+// garage, il fix non arriva entro il timeout, il callback riceve un errore e
+// nessuno riarma più niente — `avviaGps()` si chiama una volta sola per
+// registrazione. Il 20 agosto è costato l'intera velocità di un giro da 19 km
+// (63 campioni con velocità su 1677, e TUTTI dal giro di servizio sul bus).
+// Quindi: in marcia, se per questo tempo non arriva un fix usabile, il watch
+// si butta e se ne fa uno nuovo. Il valore sta largo sopra GPS_FRESCO_MS —
+// una galleria non deve far churn — ma molto sotto la durata di un viaggio.
+const GPS_RIARMO_MS = 30_000;
+
 // Il bus muto del presidio: giri di sosta consecutivi senza alcun valore
 // (l'auto dorme) prima di chiudere da soli — 150 giri a 2 s sono 5 minuti
 const GIRI_MUTI_PER_STOP = 150;
@@ -47,7 +57,7 @@ type Conteggi = {
   // La salute del GPS, che è la materia prima della distanza: il 20 agosto un
   // giro ha avuto il 4% di campioni con velocità contro il 92% degli altri, e
   // 2008 secondi sono rimasti fuori dall'integrale senza che nulla lo dicesse.
-  gps: { usati: number; imprecisi: number };
+  gps: { usati: number; imprecisi: number; riarmi: number };
 };
 const CONTEGGI_VUOTI: Conteggi = {
   inviati: 0,
@@ -55,7 +65,7 @@ const CONTEGGI_VUOTI: Conteggi = {
   scartati: 0,
   letti: 0,
   motivi: { malformati: 0, orologio: 0, senzaLetture: 0 },
-  gps: { usati: 0, imprecisi: 0 },
+  gps: { usati: 0, imprecisi: 0, riarmi: 0 },
 };
 
 export default function Registratore({
@@ -124,6 +134,8 @@ export default function Registratore({
   // La generazione del GPS: l'id del watch nativo arriva da una Promise, e un
   // fermaGps nel varco deve poter uccidere il watch appena nato
   const gpsGenerazioneRef = useRef(0);
+  // Quando è arrivato l'ultimo fix USABILE: è la sentinella del riarmo
+  const ultimoFixRef = useRef(0);
   const [regime, setRegime] = useState<'sosta' | 'viaggio'>('sosta');
   const [gpsStato, setGpsStato] = useState<'ok' | 'negato' | 'assente' | null>(null);
   // Il guasto del servizio nativo, quando c'è: non deve restare muto
@@ -307,6 +319,7 @@ export default function Registratore({
     // Sotto i 3 km/h il GPS da fermo produce rumore, non velocità
     if (kmh < 3) kmh = 0;
     gpsRef.current = { kmh, quando: Date.now() };
+    ultimoFixRef.current = Date.now();
     setConteggi(c => ({ ...c, gps: { ...c.gps, usati: c.gps.usati + 1 } }));
     if (kmh >= SOGLIA_VIAGGIO_KMH) ultimoMotoRef.current = Date.now();
   };
@@ -426,6 +439,9 @@ export default function Registratore({
     setAttivo(true);
     attivoRef.current = true;
     occupaCanale('registratore');
+    // Il credito iniziale della sentinella: il watch appena nato ha mezzo
+    // minuto per agganciare prima di essere giudicato morto.
+    ultimoFixRef.current = Date.now();
     avviaGps();
     // Nel guscio: foreground service, senza il quale a schermo spento Android
     // congela la webview e la registrazione muore in silenzio. L'esito si
@@ -509,6 +525,20 @@ export default function Registratore({
         const viaggio = inMovimento();
         if (viaggio) contestoRef.current = 'viaggio';
         setRegime(viaggio ? 'viaggio' : 'sosta');
+
+        // La sentinella del GPS: in marcia senza un fix usabile da mezzo
+        // minuto il watch è morto (o non è mai nato: partenza in garage).
+        // Si butta e se ne fa uno nuovo — l'unico modo per accorgersene è
+        // non averne notizia, quindi il rimedio non può che essere cieco.
+        if (viaggio && Date.now() - ultimoFixRef.current > GPS_RIARMO_MS) {
+          fermaGps();
+          // La sentinella si riarma con l'orologio, non col fix: senza questo
+          // ogni giro del ciclo rifarebbe il watch prima che abbia il tempo
+          // di agganciare, e il GPS non partirebbe mai.
+          ultimoFixRef.current = Date.now();
+          setConteggi(c => ({ ...c, gps: { ...c.gps, riarmi: c.gps.riarmi + 1 } }));
+          avviaGps();
+        }
 
         if (viaggio) {
           // REGIME VIAGGIO: header fermo sul BECM, coppia V/I a ~1 Hz.
@@ -739,7 +769,7 @@ export default function Registratore({
             {(conteggi.gps.usati > 0 || conteggi.gps.imprecisi > 0) &&
               ` · GPS ${conteggi.gps.usati} fix${
                 conteggi.gps.imprecisi > 0 ? `, ${conteggi.gps.imprecisi} imprecisi` : ''
-              }`}
+              }${conteggi.gps.riarmi > 0 ? `, ${conteggi.gps.riarmi} riarmi` : ''}`}
           </span>
         )}
       </div>
