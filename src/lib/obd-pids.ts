@@ -106,6 +106,10 @@ export const PID_SUPPORTATI = [...PID_VELOCI, ...PID_LENTI];
 export type Campione = Partial<Record<CampoObd, number>> & {
   recordedAt: string;
   didRaw?: Record<string, string>;
+  // Fuori da CampoObd di proposito: il segnale BLE non viene dall'auto ma
+  // dalla radio del telefono, e CampoObd governa le tabelle dei PID. E'
+  // un'annotazione sul campione, non una lettura del veicolo.
+  rssi?: number;
 };
 
 /** Legge in sequenza tutti i PID: l'ELM327 non accetta richieste sovrapposte. */

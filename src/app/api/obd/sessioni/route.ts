@@ -16,7 +16,14 @@ type Campione = {
   recordedAt: Date;
   socDisplay: number | null;
   speedKmh: number | null;
+  rssi: number | null;
 };
+
+// Sotto questa soglia il segnale e' debole abbastanza da spiegare da solo una
+// caduta: sopra, una caduta va cercata altrove (contesa di banda, non
+// distanza). Il valore non e' una legge di natura ma una linea di lettura —
+// per questo la UI mostra sempre anche il numero.
+const RSSI_DEBOLE = -85;
 
 function metriche(campioni: Campione[], capacita: number) {
   const conSoc = campioni.filter(c => c.socDisplay !== null);
@@ -49,11 +56,47 @@ function metriche(campioni: Campione[], capacita: number) {
     );
   }
 
+  // Il segnale attorno ai buchi: e' la domanda per cui l'RSSI e' stato messo
+  // in tabella. Per ogni interruzione, l'ultima potenza misurata PRIMA che si
+  // aprisse — se il segnale stava affondando la causa e' fisica (distanza,
+  // schermatura), se era pieno la causa e' altrove.
+  const conRssi = campioni.filter(c => c.rssi !== null);
+  const rssiOrdinati = conRssi.map(c => c.rssi!).sort((a, b) => a - b);
+  const cadute: { quando: string; rssi: number | null; durataSec: number }[] = [];
+  for (let i = 1; i < campioni.length; i++) {
+    const dtMs = campioni[i].recordedAt.getTime() - campioni[i - 1].recordedAt.getTime();
+    if (dtMs <= MAX_INTERVALLO_INTEGRABILE_MS) continue;
+    // L'ultimo segnale misurato prima dell'interruzione, non il piu' vicino in
+    // assoluto: dopo il buco il valore appartiene gia' al ricollegamento.
+    const prima = conRssi.filter(c => c.recordedAt <= campioni[i - 1].recordedAt).pop();
+    cadute.push({
+      quando: campioni[i - 1].recordedAt.toISOString(),
+      rssi: prima?.rssi ?? null,
+      durataSec: Math.round(dtMs / 1000),
+    });
+  }
+
   return {
     distanzaKm,
     socIniziale,
     socFinale,
     energiaKwh,
+    rssiMediana: rssiOrdinati.length
+      ? rssiOrdinati[Math.floor(rssiOrdinati.length / 2)]
+      : null,
+    rssiMin: rssiOrdinati.length ? rssiOrdinati[0] : null,
+    rssiCampioni: rssiOrdinati.length,
+    // Il verdetto si dà solo con abbastanza cadute misurate: una sola non è
+    // una firma, è un aneddoto.
+    firmaCadute:
+      cadute.filter(c => c.rssi !== null).length >= 2
+        ? cadute.filter(c => c.rssi !== null).every(c => c.rssi! <= RSSI_DEBOLE)
+          ? 'segnale debole'
+          : cadute.filter(c => c.rssi !== null).every(c => c.rssi! > RSSI_DEBOLE)
+            ? 'segnale pieno'
+            : 'mista'
+        : null,
+    cadute: cadute.slice(0, 20),
     // Sotto il chilometro il rapporto è dominato dal rumore, come per i viaggi
     consumo: distanzaKm >= 1 && energiaKwh !== null ? (energiaKwh / distanzaKm) * 100 : null,
     velocitaMax: conVel.length ? Math.max(...conVel.map(c => c.speedKmh!)) : null,
@@ -78,7 +121,7 @@ export async function GET() {
   const campioni = await prisma.obdSample.findMany({
     where: { userId, recordedAt: { gte: da } },
     orderBy: { recordedAt: 'asc' },
-    select: { recordedAt: true, socDisplay: true, speedKmh: true },
+    select: { recordedAt: true, socDisplay: true, speedKmh: true, rssi: true },
   });
 
   // Raggruppa in sessioni contigue

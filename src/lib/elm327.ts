@@ -35,6 +35,10 @@ export type Canale = {
   // Il battito nativo chiama qui: fa spirare i comandi scaduti quando i
   // timer della pagina sono congelati (schermo spento)
   battito: () => void;
+  // La potenza del segnale in dBm, quando il trasporto sa dirla. Web Bluetooth
+  // non la espone su un dispositivo gia' connesso (solo in scansione), quindi
+  // qui e' opzionale: sul web resta assente e nessuno finge di saperla.
+  rssi?: () => Promise<number | null>;
 };
 
 export type ServizioScoperto = {

@@ -230,6 +230,16 @@ export async function collegaNativo(
       disconnetti: () => { BleClient.disconnect(deviceId!).catch(() => {}); },
       suDisconnessione: cb => ascoltatori.add(cb),
       battito: protocollo.spira,
+      // Lettura locale al controller (comando HCI, niente giro sull'aria):
+      // costa pochi millisecondi e non ruba banda al dongle. Se fallisce si
+      // tace: un RSSI mancante e' un dato mancante, non un guasto da propagare.
+      rssi: async () => {
+        try {
+          return await BleClient.readRssi(deviceId!);
+        } catch {
+          return null;
+        }
+      },
     },
     servizi,
   };

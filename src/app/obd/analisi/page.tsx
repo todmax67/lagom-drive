@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Route, Cloud, Cpu, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Route, Cloud, Cpu, AlertTriangle, Radio } from 'lucide-react';
 
 type Cloud = {
   distanceKm: number | null;
@@ -26,6 +26,11 @@ type Sessione = {
   velocitaMax: number | null;
   livelliSoc: number;
   intervalloMaxSec: number;
+  rssiMediana: number | null;
+  rssiMin: number | null;
+  rssiCampioni: number;
+  firmaCadute: 'segnale debole' | 'segnale pieno' | 'mista' | null;
+  cadute: { quando: string; rssi: number | null; durataSec: number }[];
   secondiNonIntegrati: number;
   cloud: Cloud[];
 };
@@ -147,7 +152,46 @@ export default function AnalisiPage() {
               <span>velocità max {num(s.velocitaMax, 0, ' km/h')}</span>
               <span>{s.livelliSoc} livelli di carica distinti</span>
               <span>intervallo max {s.intervalloMaxSec}s</span>
+              {s.rssiCampioni > 0 && (
+                <span>
+                  segnale BLE {s.rssiMediana} dBm (minimo {s.rssiMin})
+                </span>
+              )}
             </div>
+
+            {s.firmaCadute && (
+              <p
+                className={`text-xs flex items-start gap-2 ${
+                  s.firmaCadute === 'segnale pieno'
+                    ? 'text-sky-300/90'
+                    : 'text-amber-300/80'
+                }`}
+              >
+                <Radio size={12} className="shrink-0 mt-0.5" />
+                {s.firmaCadute === 'segnale debole' &&
+                  'Le cadute arrivano tutte a segnale debole: la causa è fisica — distanza, schermatura, il telefono in un vano metallico.'}
+                {s.firmaCadute === 'segnale pieno' &&
+                  'Le cadute arrivano a segnale pieno: non è la distanza. Resta la contesa di banda a 2,4 GHz — tipicamente l\'audio Bluetooth classico verso l\'auto.'}
+                {s.firmaCadute === 'mista' &&
+                  'Cadute sia a segnale pieno sia a segnale debole: le due cause convivono, o la soglia va tarata su più giri.'}
+              </p>
+            )}
+
+            {s.cadute.length > 0 && s.cadute.some(c => c.rssi !== null) && (
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500">
+                {s.cadute
+                  .filter(c => c.rssi !== null)
+                  .map(c => (
+                    <span key={c.quando}>
+                      {new Date(c.quando).toLocaleTimeString('it-IT', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                      : {c.durataSec}s a {c.rssi} dBm
+                    </span>
+                  ))}
+              </div>
+            )}
 
             {(s.intervalloMaxSec > 30 || s.secondiNonIntegrati > 0) && (
               <p className="text-xs text-amber-300/80 flex items-start gap-2">
