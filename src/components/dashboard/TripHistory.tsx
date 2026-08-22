@@ -198,6 +198,22 @@ function ricomponi(viaggi: Trip[], codaTronca: boolean, capacita: number): Trip[
 // dai campioni, non dedotto. Soglia indicativa della bussola (§4.2), da tarare.
 const COPERTURA_LIVELLO_1 = 0.95;
 
+// Sopra questa copertura di potenza il PROFILO si può mostrare, anche quando
+// il titolo del consumo resta dedotto. Sono due domande diverse, e tenerle
+// legate a un solo numero costava informazione buona:
+//
+// il titolo divide l'integrale per TUTTI i chilometri, quindi a copertura
+// parziale mentirebbe per difetto — lì la soglia severa è giusta. Ma il
+// grafico, la trazione e il recupero non dividono per niente: sono la misura
+// di quel che è stato campionato, e dichiararne la copertura è esattamente la
+// regola della bussola (i buchi si dichiarano, non si interpolano). Nasconderli
+// perché ne manca un pezzo è il contrario di quella regola.
+//
+// Sul campo la differenza è tutta: fra il 13 e il 22 agosto 2026, dei 27
+// viaggi solo 8 superavano il 95% — gli altri, molti al 70-91%, perdevano
+// grafico e recupero pur avendo migliaia di campioni V×I buoni.
+const COPERTURA_PROFILO = 0.5;
+
 // La cascata di provenienza (docs/progetto-obd.md §3): si mostra il migliore
 // disponibile, col badge della fonte.
 //
@@ -208,6 +224,21 @@ const COPERTURA_LIVELLO_1 = 0.95;
 // dall'ultimo azzeramento MANUALE del contachilometri (16.1-16.6 fisso sullo
 // storico mentre i viaggi ballano da 8.2 a 26.8), non un dichiarato
 // per-viaggio. Livello 3 — dedotto: ΔSoC × capacità, come sempre.
+/**
+ * C'è abbastanza misura per disegnare il profilo e il bilancio del pacco?
+ * È una domanda più debole di "il titolo è misurato": vedi COPERTURA_PROFILO.
+ */
+function haProfilo(trip: Trip): boolean {
+  const obd = trip.obd;
+  return (
+    !!obd &&
+    obd.powerCoverage !== null &&
+    obd.powerCoverage >= COPERTURA_PROFILO &&
+    obd.energyGrossKwh !== null &&
+    obd.energyRegenGrossKwh !== null
+  );
+}
+
 function consumoConFonte(trip: Trip): { valore: number; misurato: boolean } | null {
   const obd = trip.obd;
   const km = obd?.distanceObdKm ?? trip.distanceKm;
@@ -434,7 +465,13 @@ function CardMisurata({
   const lordo = obd.energyGrossKwh!;
   const recupero = obd.energyRegenGrossKwh!;
   const netto = lordo - recupero;
-  const consumo = km && km >= 1 ? (netto / km) * 100 : null;
+  // Il livello del TITOLO, non della card: il profilo si mostra comunque.
+  const livello1 = (obd.powerCoverage ?? 0) >= COPERTURA_LIVELLO_1;
+  const consumo = livello1 && km && km >= 1 ? (netto / km) * 100 : null;
+  // Sotto il livello 1 il titolo torna al dedotto, dichiarato come tale: un
+  // integrale parziale diviso per TUTTI i chilometri direbbe un consumo più
+  // basso del vero, ed è l'errore peggiore fra i due (lusinga chi guida).
+  const dedotto = livello1 ? null : consumoConFonte(trip);
 
   // Il punto per Salute: capacità implicita = netto / ΔSoC. Solo quando il
   // salto di SoC supera la soglia anti-quantizzazione, e senza decimali: con
@@ -443,8 +480,11 @@ function CardMisurata({
     obd.socStartObd != null && obd.socEndObd != null
       ? obd.socStartObd - obd.socEndObd
       : null;
+  // Anche il punto per Salute vuole il livello 1: il netto parziale diviso per
+  // il salto di SoC INTERO darebbe una capacità sistematicamente bassa, e il
+  // testimone C si avvelenerebbe da solo.
   const capacitaImplicita =
-    deltaSoc != null && deltaSoc >= DELTA_SOC_MIN_CAPACITA && netto > 0
+    livello1 && deltaSoc != null && deltaSoc >= DELTA_SOC_MIN_CAPACITA && netto > 0
       ? (netto / deltaSoc) * 100
       : null;
 
@@ -470,8 +510,14 @@ function CardMisurata({
             </p>
           )}
         </div>
-        <span className="text-xs text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full shrink-0">
-          misurato OBD
+        <span
+          className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${
+            livello1
+              ? 'text-emerald-400 bg-emerald-400/10'
+              : 'text-gray-300 bg-gray-700/40'
+          }`}
+        >
+          {livello1 ? 'misurato OBD' : 'OBD parziale'}
         </span>
       </div>
 
@@ -488,6 +534,18 @@ function CardMisurata({
               vs la tua mediana ({confronto.base} misurati)
             </span>
           )}
+        </div>
+      )}
+
+      {dedotto && (
+        <div className="flex items-end justify-between gap-2">
+          <p className="text-white">
+            <span className="text-3xl font-light tabular-nums">{it(dedotto.valore, 1)}</span>
+            <span className="text-sm text-gray-400 ml-1.5">kWh/100 km</span>
+          </p>
+          <span className="text-xs text-gray-400 bg-gray-700/40 px-2 py-0.5 rounded-full mb-1">
+            dedotto · ΔSoC × capacità
+          </span>
         </div>
       )}
 
@@ -627,6 +685,11 @@ export default function TripHistory({ onSalute }: { onSalute?: () => void }) {
     .filter(x => x.c?.misurato)
     .map(x => ({ id: x.id, valore: x.c!.valore }));
   const confrontoPer = (id: string): { delta: number; base: number } | null => {
+    // La card piena ora esiste anche sotto il livello 1, e quei viaggi NON
+    // stanno fra i misurati: senza questa guardia il find sotto tornerebbe
+    // undefined e la lista intera morirebbe su un dereference.
+    const suo = misurati.find(m => m.id === id);
+    if (!suo) return null;
     const altri = misurati.filter(m => m.id !== id).map(m => m.valore);
     if (altri.length < 3) return null;
     const ordinati = [...altri].sort((a, b) => a - b);
@@ -634,9 +697,8 @@ export default function TripHistory({ onSalute }: { onSalute?: () => void }) {
       ordinati.length % 2
         ? ordinati[(ordinati.length - 1) / 2]
         : (ordinati[ordinati.length / 2 - 1] + ordinati[ordinati.length / 2]) / 2;
-    const proprio = misurati.find(m => m.id === id)!.valore;
     if (mediana <= 0) return null;
-    return { delta: ((proprio - mediana) / mediana) * 100, base: altri.length };
+    return { delta: ((suo.valore - mediana) / mediana) * 100, base: altri.length };
   };
 
   return (
@@ -647,7 +709,7 @@ export default function TripHistory({ onSalute }: { onSalute?: () => void }) {
 
       <div className="flex flex-col gap-3">
         {ricomposti.map(trip =>
-          consumoConFonte(trip)?.misurato ? (
+          haProfilo(trip) ? (
             <CardMisurata
               key={trip.id}
               trip={trip}

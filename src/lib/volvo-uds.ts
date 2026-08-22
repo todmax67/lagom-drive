@@ -124,6 +124,11 @@ export function estraiPayload(risposta: string, did: string): number[] | null {
 }
 
 /** Risposta negativa: 7F <servizio> <codice>. Dice che il DID non esiste. */
+// I codici negativi UDS che significano "riprova", non "no":
+// 0x21 busyRepeatRequest, 0x22 conditionsNotCorrect,
+// 0x78 requestCorrectlyReceived-ResponsePending.
+const NEGATIVI_TRANSITORI = new Set([0x21, 0x22, 0x78]);
+
 export function codiceNegativo(risposta: string): number | null {
   const p = risposta.replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
   const i = p.indexOf('7F22');
@@ -172,7 +177,20 @@ export async function leggiDid(
   did: string
 ): Promise<string> {
   const prima = await invia(did).catch(e => `ERRORE ${e instanceof Error ? e.message : e}`);
-  if (estraiPayload(prima, did) || codiceNegativo(prima) !== null) return prima;
+  if (estraiPayload(prima, did)) return prima;
+  // Un codice negativo NON e' sempre l'ultima parola. Tre di questi dicono
+  // "non ora", non "non esiste", e sono esattamente quelli che una centralina
+  // appena svegliata restituisce: ritentare e' giusto. Gli altri (servizio non
+  // supportato, DID fuori intervallo, accesso negato) sono verdetti definitivi
+  // e ritentarli vorrebbe dire solo martellare il bus.
+  //
+  // Senza questa distinzione la sonda del buongiorno falliva il PRIMO
+  // tentativo ogni singola mattina — 22F442 (la 12V, prima della lista) non
+  // rispondeva mai, e con lei sparivano SoH e tensione di pacco. Quattro
+  // mattine su quattro fra il 19 e il 22 agosto 2026, sempre identiche: sei
+  // campi al primo giro, nove al secondo trenta secondi dopo.
+  const codice = codiceNegativo(prima);
+  if (codice !== null && !NEGATIVI_TRANSITORI.has(codice)) return prima;
   return invia(did).catch(e => `ERRORE ${e instanceof Error ? e.message : e}`);
 }
 
@@ -323,8 +341,18 @@ export async function leggiDidVolvo(invia: (c: string) => Promise<string>): Prom
 
   try {
     for (const v of DID_DA_REGISTRARE) {
-      const risposta = await leggiDid(invia, v.did).catch(() => '');
-      const payload = estraiPayload(risposta, v.did);
+      let payload = estraiPayload(await leggiDid(invia, v.did).catch(() => ''), v.did);
+      // Un payload che c'e' ma non converte e' TRONCATO, non assente: sul
+      // canale freddo del mattino 22497C e 22496D tornavano di un byte solo,
+      // e i campi tipizzati restavano vuoti mentre il grezzo risultava
+      // presente — un guasto travestito da dato mancante. Vale un secondo
+      // colpo, come il DID che non risponde affatto.
+      if (payload && v.campo && v.converti) {
+        const primo = v.converti(payload);
+        if (primo === null || !Number.isFinite(primo)) {
+          payload = estraiPayload(await leggiDid(invia, v.did).catch(() => ''), v.did) ?? payload;
+        }
+      }
       if (!payload) continue;
       grezzi[v.did] = payload.map(b => b.toString(16).toUpperCase().padStart(2, '0')).join('');
       if (v.campo && v.converti) {
