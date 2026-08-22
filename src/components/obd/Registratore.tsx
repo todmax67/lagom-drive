@@ -42,9 +42,21 @@ const GIRI_VIAGGIO_PER_LENTO = 45;
 // una galleria non deve far churn — ma molto sotto la durata di un viaggio.
 const GPS_RIARMO_MS = 30_000;
 
-// Il bus muto del presidio: giri di sosta consecutivi senza alcun valore
-// (l'auto dorme) prima di chiudere da soli — 150 giri a 2 s sono 5 minuti
-const GIRI_MUTI_PER_STOP = 150;
+// Il bus muto del presidio: da quanto tempo l'auto non risponde più, prima che
+// la registrazione si chiuda da sola (§5.4).
+//
+// Era un conteggio di GIRI (150 a 2 s = 5 minuti), e l'aritmetica reggeva solo
+// finché i giri duravano 2 secondi. Ma quando il canale muore ogni giro paga
+// due timeout da 5 secondi invece di rispondere subito: il giro passa a ~10 s
+// e i 150 diventano VENTICINQUE minuti. L'auto-stop si allungava di cinque
+// volte esattamente nella situazione per cui esiste.
+//
+// Sul campo, il 22 agosto: il dongle ha smesso di rispondere restando
+// collegato, e la sessione è rimasta aperta 13,5 minuti a macinare timeout —
+// con l'auto in marcia, la tensione di pacco scesa da 366,1 a 359,7 V e non un
+// campione salvato. A tempo, il presidio avrebbe chiuso dopo cinque minuti e
+// riagganciato: lo stesso buco durava un terzo.
+const SILENZIO_STOP_MS = 5 * 60 * 1000;
 
 // Ogni quanto leggere il segnale BLE. La lettura e' locale al controller e
 // costa millisecondi, ma un valore ogni cinque secondi basta a disegnare
@@ -487,7 +499,8 @@ export default function Registratore({
 
     let giro = 0;
     let giroViaggio = 0;
-    let giriMuti = 0;
+    // Da quando il bus tace, in millisecondi d'orologio; 0 quando risponde.
+    let mutoDa = 0;
     // L'ultima lettura del segnale: si campiona a tempo, non a giro, cosi' la
     // cadenza resta la stessa nei due regimi (1 Hz in viaggio, 0,5 in sosta).
     let ultimoRssi = 0;
@@ -636,11 +649,14 @@ export default function Registratore({
         // L'auto-stop del presidio: l'auto dorme, i PID non rispondono più.
         // Dopo cinque minuti di giri vuoti da fermo la guida è finita: la
         // sessione si chiude e il genitore rilascia il dongle (§5.4).
-        if (muto && !inMovimento()) giriMuti++;
-        else giriMuti = 0;
+        if (muto && !inMovimento()) {
+          if (!mutoDa) mutoDa = Date.now();
+        } else {
+          mutoDa = 0;
+        }
         // Il valore vivo, non quello congelato all'avvio: spegnere il toggle
         // a registrazione in corso disarma anche l'auto-stop
-        if (presidioVivoRef.current && giriMuti >= GIRI_MUTI_PER_STOP) {
+        if (presidioVivoRef.current && mutoDa && Date.now() - mutoDa >= SILENZIO_STOP_MS) {
           ferma();
           onAutoStop?.();
           break;
