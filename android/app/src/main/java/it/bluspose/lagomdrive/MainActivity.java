@@ -5,6 +5,8 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 
+import android.webkit.CookieManager;
+
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
@@ -45,5 +47,24 @@ public class MainActivity extends BridgeActivity {
                 )
             );
         }
+    }
+
+    /**
+     * Il cookie di sessione va SCRITTO SU DISCO quando l'app passa in secondo
+     * piano. La WebView di Android tiene i cookie in memoria e li riversa da
+     * sola solo ogni tanto: se il processo viene ucciso prima — e con il
+     * presidio l'app sta in secondo piano quasi sempre, che è la condizione in
+     * cui Android uccide per primo — il cookie non arriva mai al disco e al
+     * lancio dopo la sessione non c'è più.
+     *
+     * Da fuori si vede come "devo rifare il login ogni volta", ed è per questo
+     * che sembrava un problema di autenticazione: il grant Volvo era intatto
+     * (i token si rinnovavano regolarmente lato server), spariva solo il
+     * cookie di NextAuth, che di suo dura novanta giorni.
+     */
+    @Override
+    public void onPause() {
+        super.onPause();
+        CookieManager.getInstance().flush();
     }
 }
