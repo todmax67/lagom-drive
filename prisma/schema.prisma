@@ -138,6 +138,13 @@ model ObdSample {
   didRaw Json?
 
   // Batteria 12V: serve a misurare quanto pesa il dongle stesso quando resta inserito
+  // La potenza del segnale BLE del dongle, in dBm. Non viene dall'auto: viene
+  // dalla radio del telefono, ed e' l'unico strumento che distingue le due
+  // firme di una caduta — segnale che affonda (schermatura, distanza, il vano
+  // di ricarica) contro segnale pieno che cade lo stesso (contesa di banda a
+  // 2,4 GHz, tipicamente l'audio Bluetooth classico verso l'auto).
+  rssi Int?
+
   batt12vSoc     Float? // [CEM] Battery SoC
   batt12vVoltage Float? // [CEM] Battery voltage
   parasiticMa    Float? // [CEM] Average static low range battery current

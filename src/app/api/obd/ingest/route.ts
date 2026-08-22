@@ -43,6 +43,10 @@ const RANGES: Record<string, [number, number]> = {
   // Una 12V che legge zero non è scarica, è un sensore che non risponde
   batt12vVoltage: [6, 20],
   parasiticMa: [-100_000, 100_000],
+  // dBm: zero e' irraggiungibile nella pratica, -127 e' il fondo scala della
+  // specifica. Lo zero resta ammesso perche' e' il limite del dominio, non il
+  // valore con cui un sensore assente si presenta.
+  rssi: [-127, 0],
 };
 
 function readMetric(raw: unknown, field: string): number | null {

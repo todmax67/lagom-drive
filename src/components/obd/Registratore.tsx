@@ -46,6 +46,11 @@ const GPS_RIARMO_MS = 30_000;
 // (l'auto dorme) prima di chiudere da soli — 150 giri a 2 s sono 5 minuti
 const GIRI_MUTI_PER_STOP = 150;
 
+// Ogni quanto leggere il segnale BLE. La lettura e' locale al controller e
+// costa millisecondi, ma un valore ogni cinque secondi basta a disegnare
+// l'andamento attorno a una caduta senza gonfiare la tabella.
+const RSSI_OGNI_MS = 5000;
+
 type Conteggi = {
   inviati: number;
   duplicati: number;
@@ -483,6 +488,22 @@ export default function Registratore({
     let giro = 0;
     let giroViaggio = 0;
     let giriMuti = 0;
+    // L'ultima lettura del segnale: si campiona a tempo, non a giro, cosi' la
+    // cadenza resta la stessa nei due regimi (1 Hz in viaggio, 0,5 in sosta).
+    let ultimoRssi = 0;
+
+    // Il segnale BLE accanto ai dati: e' lo strumento che distingue le due
+    // firme di una caduta. Si stampa DOPO il giudizio "bus muto", che deve
+    // continuare a guardare le sole risposte dell'auto — il segnale c'e' anche
+    // quando l'auto dorme, e contarlo terrebbe il dongle agganciato per sempre.
+    const stampaRssi = async (campione: Campione) => {
+      if (!canale.rssi) return;
+      const ora = Date.now();
+      if (ora - ultimoRssi < RSSI_OGNI_MS) return;
+      ultimoRssi = ora;
+      const v = await canale.rssi();
+      if (v !== null && Number.isFinite(v)) campione.rssi = v;
+    };
     // true quando l'header del dongle è fermo sul BECM (regime viaggio):
     // uscendo dal loop VA ripristinato, o i PID standard muoiono (trappola 5.3.1)
     let headerSuBECM = false;
@@ -579,6 +600,7 @@ export default function Registratore({
             errori.push(...erroriStd);
           }
 
+          await stampaRssi(campione);
           registra(campione, errori);
           if (bufferRef.current.length >= CAMPIONI_PER_INVIO) svuotaSenzaAttesa();
 
@@ -607,6 +629,7 @@ export default function Registratore({
         const muto = Object.keys(campione).length <= 1;
         if (lento && !muto) await giroCompleto(campione, errori);
 
+        await stampaRssi(campione);
         registra(campione, errori);
         if (bufferRef.current.length >= CAMPIONI_PER_INVIO) svuotaSenzaAttesa();
 
