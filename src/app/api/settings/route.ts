@@ -34,6 +34,9 @@ export async function POST(request: Request) {
       homeTariff: body.homeTariff,
       publicTariff: body.publicTariff,
       batteryCapacity: body.batteryCapacity,
+      ...(typeof body.batteryCapacityNominal === 'number' && {
+        batteryCapacityNominal: body.batteryCapacityNominal,
+      }),
     },
     create: {
       id: userId,
@@ -41,6 +44,9 @@ export async function POST(request: Request) {
       homeTariff: body.homeTariff,
       publicTariff: body.publicTariff,
       batteryCapacity: body.batteryCapacity,
+      ...(typeof body.batteryCapacityNominal === 'number' && {
+        batteryCapacityNominal: body.batteryCapacityNominal,
+      }),
     },
   });
 

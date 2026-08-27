@@ -55,7 +55,16 @@ model Settings {
   userId          String   @unique
   homeTariff      Float    @default(0.25)
   publicTariff    Float    @default(0.50)
+  // La capacita' DI LAVORO: quella con cui si deducono le energie dal ΔSoC.
+  // Promossa quando i testimoni concordano (bussola §4.4), non e' un dato di
+  // targa ma la misura corrente del pacco.
   batteryCapacity Float    @default(67.0)
+  // La capacita' NOMINALE, cioe' l'utile da nuova. Non si tocca con le
+  // promozioni: e' il riferimento contro cui si legge il degrado, ed e' il
+  // denominatore implicito del SoH (che e' una percentuale dell'ORIGINALE,
+  // non di quella di lavoro). Senza questo campo, promuovere la capacita'
+  // cancellava il metro con cui si misura quanto si e' persi.
+  batteryCapacityNominal Float @default(67.0)
   updatedAt       DateTime @updatedAt
 }
 
