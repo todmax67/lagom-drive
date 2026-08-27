@@ -7,6 +7,7 @@ interface Settings {
   homeTariff: number;
   publicTariff: number;
   batteryCapacity: number;
+  batteryCapacityNominal: number;
 }
 
 export default function SettingsPage() {
@@ -14,6 +15,7 @@ export default function SettingsPage() {
     homeTariff: 0.25,
     publicTariff: 0.50,
     batteryCapacity: 67.0,
+    batteryCapacityNominal: 67.0,
   });
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -27,6 +29,7 @@ export default function SettingsPage() {
           homeTariff: data.homeTariff,
           publicTariff: data.publicTariff,
           batteryCapacity: data.batteryCapacity,
+          batteryCapacityNominal: data.batteryCapacityNominal ?? 67.0,
         });
       })
       .catch(console.error)
@@ -139,8 +142,50 @@ export default function SettingsPage() {
             <span className="text-gray-400 text-sm whitespace-nowrap">kWh</span>
           </div>
           <p className="text-xs text-gray-500">
-            Usata per calcolare i kWh aggiunti durante le ricariche.
-            XC40 Recharge: 69 kWh — EX30: 51 kWh — EX40: 69 kWh
+            La capacità <strong className="text-gray-400">di lavoro</strong>: quella con cui si
+            deducono i kWh dal salto di carica, nei viaggi e nelle ricariche. Si
+            promuove quando i testimoni concordano, non è un dato di targa.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label className="flex items-center gap-2 text-sm text-gray-300">
+            <Battery size={14} className="text-gray-500" />
+            Capacità nominale (kWh)
+          </label>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              step="0.1"
+              min="10"
+              max="200"
+              value={settings.batteryCapacityNominal}
+              onChange={e =>
+                setSettings(s => ({
+                  ...s,
+                  batteryCapacityNominal: parseFloat(e.target.value) || 67,
+                }))
+              }
+              className="w-full bg-gray-900/60 border border-gray-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500 transition-colors"
+            />
+            <span className="text-gray-400 text-sm whitespace-nowrap">kWh</span>
+          </div>
+          <p className="text-xs text-gray-500">
+            L&apos;utile <strong className="text-gray-400">da nuova</strong>, che le promozioni non
+            toccano: è il metro contro cui si legge il degrado, e il denominatore
+            implicito del SoH — che è una percentuale dell&apos;originale, non di quella
+            di lavoro. XC40 Recharge: 67 kWh utili (69 lordi) — EX30: 51 kWh.
+            {settings.batteryCapacityNominal > 0 &&
+              settings.batteryCapacity !== settings.batteryCapacityNominal && (
+                <>
+                  {' '}Oggi la di lavoro è il{' '}
+                  {(
+                    (settings.batteryCapacity / settings.batteryCapacityNominal) *
+                    100
+                  ).toFixed(1)}
+                  % della nominale.
+                </>
+              )}
           </p>
         </div>
       </div>
