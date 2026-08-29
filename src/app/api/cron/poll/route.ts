@@ -84,16 +84,18 @@ export async function GET(request: Request) {
         take: 2,
       });
       const lastSnap = last2[0];
+      let minAge = 0;
+      let mode: keyof typeof MIN_AGE_MS = 'idleRecent';
+      let ageMs = Number.POSITIVE_INFINITY;
       if (lastSnap) {
-        const ageMs = Date.now() - lastSnap.createdAt.getTime();
+        ageMs = Date.now() - lastSnap.createdAt.getTime();
         const prevOdo = last2[1]?.odometer ?? null;
         const wasMoving =
           prevOdo !== null &&
           lastSnap.odometer !== null &&
           lastSnap.odometer - prevOdo >= MIN_MOVE_KM;
 
-        let minAge = MIN_AGE_MS.idleRecent;
-        let mode: keyof typeof MIN_AGE_MS = 'idleRecent';
+        minAge = MIN_AGE_MS.idleRecent;
         if (lastSnap.isCharging) { minAge = MIN_AGE_MS.charging; mode = 'charging'; }
         else if (wasMoving) { minAge = MIN_AGE_MS.moving; mode = 'moving'; }
         else if (lastSnap.isConnected) { minAge = MIN_AGE_MS.plugged; mode = 'plugged'; }
@@ -115,11 +117,6 @@ export async function GET(request: Request) {
           if (stationaryMs > IDLE_LONG_MS) { minAge = MIN_AGE_MS.idleLong; mode = 'idleLong'; }
         }
 
-        if (ageMs < minAge) {
-          console.log(`Skip poll userId ${session.userId}: mode=${mode}, ageMs=${ageMs}, minAge=${minAge}`);
-          results.push({ userId: session.userId, status: 'skipped', mode });
-          continue;
-        }
       }
 
       // Il token si rinnova attraverso rinnovaToken, che conosce la corsa fra
@@ -130,11 +127,44 @@ export async function GET(request: Request) {
         continue;
       }
 
+      // LA SONDA LEGGERA. Dove prima si saltava a scatola chiusa, ora si spende
+      // UNA sola chiamata per chiedere se è cambiato qualcosa.
+      //
+      // Il salto cieco costava caro proprio quando serviva precisione: ad auto
+      // ferma il timer va a quindici minuti, quindi l'INIZIO di qualunque cosa
+      // — una partenza, una spina inserita, una ricarica — veniva scoperto con
+      // un quarto d'ora di ritardo. Il 27 agosto è costato l'avvio di una DC:
+      // alle 17:02 l'auto era ferma al 37%, il giro dopo è arrivato alle 17:12
+      // e l'ha trovata già al 48% e in carica. Undici punti persi, su una
+      // ricarica che in tutto ne ha fatti 42.
+      //
+      // Lo stato di ricarica è una chiamata sola e porta i tre segnali che
+      // contano (livello, in carica, spina). Se non è cambiato niente si esce
+      // come prima; se è cambiato si prosegue col giro pieno SENZA aspettare
+      // il timer, e la lettura appena fatta viene riusata invece di rifarla.
+      let sonda: Awaited<ReturnType<typeof getRechargeStatus>> | null = null;
+      if (lastSnap && ageMs < minAge) {
+        sonda = await getRechargeStatus(accessToken, session.userId);
+        const cambiato =
+          sonda.level !== lastSnap.level ||
+          sonda.isCharging !== lastSnap.isCharging ||
+          sonda.isConnected !== lastSnap.isConnected;
+        if (!cambiato) {
+          console.log(`Sonda userId ${session.userId}: nulla di nuovo (mode=${mode}, ageMs=${ageMs})`);
+          results.push({ userId: session.userId, status: 'sonda', mode });
+          continue;
+        }
+        console.log(
+          `Sonda userId ${session.userId}: CAMBIATO (${lastSnap.level}%→${sonda.level}%, ` +
+            `carica ${lastSnap.isCharging}→${sonda.isCharging}, spina ${lastSnap.isConnected}→${sonda.isConnected}) — giro pieno subito`
+        );
+      }
+
       // Recupera tutti i dati in parallelo. L'odometro fallisce a null, non a 0:
       // uno 0 finirebbe in DB indistinguibile da una lettura vera e il trip
       // detector lo leggerebbe come un salto di decine di migliaia di km.
       const [battery, isDriving, stats, odometer] = await Promise.all([
-        getRechargeStatus(accessToken, session.userId),
+        sonda ?? getRechargeStatus(accessToken, session.userId),
         getEngineStatus(accessToken, session.userId).catch(() => false),
         getStatistics(accessToken, session.userId).catch(() => null),
         getOdometer(accessToken, session.userId).catch(() => null),

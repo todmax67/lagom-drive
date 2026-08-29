@@ -1,10 +1,11 @@
 # Secondo scheduler, in parallelo a cron-job.org.
 #
-# Non lo sostituisce: lo affianca. /api/cron/poll decide da sé se è il momento
-# di interrogare Volvo — 2 minuti in movimento, 5 da fermo, 15 a sosta lunga —
-# e a chi chiama troppo presto risponde "skipped". Chiamare due volte non
-# raddoppia nulla, quindi la ridondanza non costa niente e nessuno dei due
-# scheduler deve essere affidabile da solo.
+# Non lo sostituisce: lo affianca. /api/cron/poll decide da sé quanto lavoro
+# fare — il giro pieno a 2 minuti in movimento, 5 da fermo, 15 a sosta lunga;
+# nel mezzo una sonda da una chiamata sola che risponde "sonda" quando non è
+# cambiato niente, e fa scattare il giro pieno appena cambia qualcosa. Chiamare
+# due volte non raddoppia nulla, quindi la ridondanza non costa niente e
+# nessuno dei due scheduler deve essere affidabile da solo.
 #
 # Serve perché cron-job.org si è fermato in silenzio due volte, e in entrambi i
 # casi ce ne siamo accorti per caso. Qui la pianificazione sta nel repository:
